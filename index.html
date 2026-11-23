@@ -1,0 +1,951 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#04060c">
+<title>KIMHĒKIM · ASCII ATELIER</title>
+<style>
+  :root{
+    --pink:#f6b8c8; --pink-hi:#ffd6e4; --denim:#6c98c2; --ink:#e9eef7;
+    --bg:#04060c;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--ink);
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+    overflow:hidden; overscroll-behavior:none;}
+  #stage{position:fixed;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab;}
+  #stage.drag{cursor:grabbing;}
+  .hud{position:fixed;inset:0;pointer-events:none;display:flex;flex-direction:column;
+       justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 14px) 16px
+       calc(env(safe-area-inset-bottom,0px) + 14px);}
+  .top{display:flex;align-items:baseline;gap:10px;font-size:11px;letter-spacing:.22em;
+       color:rgba(233,238,247,.55);text-transform:uppercase;}
+  .top b{font-weight:700;color:rgba(255,244,248,.9);letter-spacing:.28em;}
+  .top i{font-style:normal;color:rgba(246,184,200,.75);}
+  .bottom{display:flex;flex-direction:column;align-items:center;gap:12px;}
+  .cap{font-size:clamp(9px,2.4vw,13px);letter-spacing:.62em;color:#fff4f8;
+       text-shadow:0 0 12px rgba(246,184,200,.75),0 0 30px rgba(108,152,194,.45);
+       margin-top:2px;text-indent:.62em;}
+  .bar{pointer-events:auto;display:flex;flex-wrap:wrap;gap:6px;justify-content:center;
+       padding:7px 8px;border:1px solid rgba(148,170,205,.22);border-radius:999px;
+       background:rgba(8,12,20,.55);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);}
+  .bar button{appearance:none;border:0;background:transparent;color:rgba(222,232,247,.72);
+       font:inherit;font-size:10px;letter-spacing:.14em;padding:6px 10px;border-radius:999px;
+       cursor:pointer;transition:.18s color,.18s background;}
+  .bar button:hover,.bar button:focus-visible{color:#fff;background:rgba(246,184,200,.16);outline:none;}
+  .bar button.on{color:#0a0c14;background:var(--pink);}
+  @media (max-width:420px){ .bar button{font-size:9px;padding:5px 8px;} }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div class="hud">
+  <div class="top"><b>KIMHĒKIM</b><i>ascii atelier</i></div>
+  <div class="bottom">
+    <div class="bar">
+      <button data-act="auto" class="on">◍ AUTO</button>
+      <button data-act="theme">◐ DENIM &amp; PINK</button>
+      <button data-act="res">▦ RES</button>
+      <button data-act="speed">» SPEED</button>
+      <button data-act="burst">✦ BURST</button>
+    </div>
+    <div class="cap">HOLIDAY 2026</div>
+  </div>
+</div>
+<script>
+"use strict";
+/* ======================================================================
+   KIMHĒKIM · ASCII ATELIER
+   데님 트리 · 핑크 리본 · 택 · 기프트 박스 · KIMHĒKIM 로고 폭죽 (3D ASCII)
+   ====================================================================== */
+
+/* ---------- 김해김 공식 로고 실루엣 (RLE / base36) ---------- */
+const LOGO_W = 640, LOGO_H = 116, LOGO_CAP_TOP = 11, LOGO_MAC_BOTTOM = 10;
+const LOGO_ASPECT = 5.5272;
+const LOGO_RLE = 
+  "9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6o;9g,1o,6"
+  + "o;hs;hs;hs;hs;hs;hs;hs;hs;hs;hs;hs;0,e,1a,i,d,e,h,n,1e,n,n,d,1c,e,k,1v,j,d,1b,i,d,e,h,m,"
+  + "1f,n;0,e,19,i,e,e,h,n,1e,n,n,d,1c,e,k,1v,j,d,1a,i,e,e,h,n,1e,n;0,e,18,i,f,e,h,n,1e,n,n,d"
+  + ",1c,e,k,1v,j,d,19,i,f,e,h,n,1d,o;0,e,17,i,g,e,h,o,1c,o,n,d,1c,e,k,1v,j,d,18,i,g,e,h,n,1d"
+  + ",o;0,e,16,i,h,e,h,o,1c,o,n,d,1c,e,k,1v,j,d,17,i,h,e,h,o,1c,o;0,e,15,i,i,e,h,o,1c,o,n,d,1"
+  + "c,e,k,1v,j,d,16,i,i,e,h,o,1c,o;0,e,14,i,j,e,h,p,1a,p,n,d,1c,e,k,1v,j,d,15,i,j,e,h,o,1b,p"
+  + ";0,e,13,i,k,e,h,p,1a,p,n,d,1c,e,k,1v,j,d,14,i,k,e,h,p,1a,p;0,e,12,j,k,e,h,p,1a,p,n,d,1c,"
+  + "e,k,1v,j,d,13,i,l,e,h,p,1a,p;0,e,12,i,l,e,h,p,19,q,n,d,1c,e,k,1v,j,d,12,i,m,e,h,p,19,q;0"
+  + ",e,11,i,m,e,h,q,18,q,n,d,1c,e,k,1v,j,d,12,i,m,e,h,q,18,q;0,e,10,i,n,e,h,q,18,q,n,d,1c,e,"
+  + "k,1v,j,d,10,i,o,e,h,q,18,q;0,e,z,i,o,e,h,d,1,d,16,d,1,d,n,d,1c,e,k,e,20,d,10,i,o,e,h,d,1"
+  + ",c,17,r;0,e,y,i,p,e,h,d,1,d,16,d,1,d,n,d,1c,e,k,e,20,d,z,h,q,e,h,d,1,d,16,c,1,e;0,e,x,i,"
+  + "q,e,h,d,1,d,16,c,2,d,n,d,1c,e,k,e,20,d,y,i,q,e,h,d,1,d,16,c,1,e;0,e,w,i,r,e,h,d,2,c,16,c"
+  + ",2,d,n,d,1c,e,k,e,20,d,x,i,r,e,h,d,2,c,15,d,1,e;0,e,v,i,s,e,h,d,2,d,14,d,2,d,n,d,1c,e,k,"
+  + "e,20,d,w,i,s,e,h,d,2,d,14,d,1,e;0,e,u,i,t,e,h,d,3,c,14,d,2,d,n,d,1c,e,k,e,20,d,v,i,t,e,h"
+  + ",d,2,d,14,c,2,e;0,e,t,i,u,e,h,d,3,c,14,c,3,d,n,d,1c,e,k,e,20,d,u,i,u,e,h,d,3,c,13,d,2,e;"
+  + "0,e,s,i,v,e,h,d,3,d,12,d,3,d,n,d,1c,e,k,e,20,d,t,i,v,e,h,d,3,c,13,d,2,e;0,e,r,i,w,e,h,d,"
+  + "4,c,12,d,3,d,n,d,1c,e,k,e,20,d,s,i,w,e,h,d,3,d,12,c,3,e;0,e,r,h,x,e,h,d,4,c,12,c,4,d,n,d"
+  + ",1c,e,k,e,20,d,r,i,x,e,h,d,4,c,11,d,3,e;0,e,p,i,y,e,h,d,4,d,10,d,4,d,n,d,1c,e,k,e,20,d,q"
+  + ",i,y,e,h,d,4,d,10,d,3,e;0,e,p,h,z,e,h,d,5,c,10,d,4,d,n,d,1c,e,k,e,20,d,p,i,z,e,h,d,4,d,1"
+  + "0,d,3,e;0,e,o,h,10,e,h,d,5,c,10,c,5,d,n,d,1c,e,k,e,20,d,p,h,10,e,h,d,5,c,10,c,4,e;0,e,n,"
+  + "i,10,e,h,d,5,d,y,d,5,d,n,d,1c,e,k,e,20,d,o,h,11,e,h,d,5,c,z,d,4,e;0,e,m,h,12,e,h,d,6,c,y"
+  + ",d,5,d,n,d,1c,e,k,e,20,d,n,h,12,e,h,d,5,d,y,d,4,e;0,e,l,i,12,e,h,d,6,c,y,d,5,d,n,d,1c,e,"
+  + "k,e,20,d,m,i,12,e,h,d,6,c,y,c,5,e;0,e,k,i,13,e,h,d,6,d,w,d,6,d,n,d,1c,e,k,e,20,d,l,h,14,"
+  + "e,h,d,6,d,w,d,5,e;0,e,j,i,14,e,h,d,7,c,w,d,6,d,n,d,1c,e,k,e,20,d,k,i,14,e,h,d,6,d,w,d,5,"
+  + "e;0,e,i,i,15,e,h,d,7,c,w,c,7,d,n,d,1c,e,k,e,20,d,j,h,16,e,h,d,7,c,w,c,6,e;0,e,h,i,16,e,h"
+  + ",d,7,d,u,d,7,d,n,d,1c,e,k,e,20,d,i,i,16,e,h,d,7,c,v,d,6,e;0,e,g,i,17,e,h,d,8,c,u,d,7,d,n"
+  + ",d,1c,e,k,e,20,d,h,i,17,e,h,d,8,c,u,d,6,e;0,e,f,i,18,e,h,d,8,c,u,d,7,d,n,d,1c,e,k,e,20,d"
+  + ",g,i,18,e,h,d,8,c,u,c,7,e;0,e,f,h,19,e,h,d,8,d,t,c,8,d,n,d,1c,e,k,e,20,d,f,i,19,e,h,d,8,"
+  + "c,t,d,7,e;0,e,e,h,1a,e,h,d,9,c,s,d,8,d,n,d,1c,e,k,e,20,d,e,i,1a,e,h,d,8,d,s,d,7,e;0,e,d,"
+  + "h,1b,e,h,d,9,c,s,d,8,d,n,d,1c,e,k,e,20,d,e,h,1b,e,h,d,9,c,s,c,8,e;0,e,c,h,1c,e,h,d,9,d,r"
+  + ",c,9,d,n,d,1c,e,k,e,20,d,c,i,1c,e,h,d,9,c,r,d,8,e;0,e,b,h,1d,e,h,d,a,c,q,d,9,d,n,d,1c,e,"
+  + "k,e,20,d,c,h,1d,e,h,d,a,c,q,d,8,e;0,e,a,h,1e,e,h,d,a,c,q,d,9,d,n,d,1c,e,k,e,20,d,b,h,1e,"
+  + "e,h,d,a,c,q,c,9,e;0,e,9,h,1f,e,h,d,a,d,p,c,a,d,n,d,1c,e,k,e,20,d,a,h,1f,e,h,d,a,c,q,c,9,"
+  + "e;0,e,8,j,1e,e,h,d,b,c,o,d,a,d,n,23,k,1s,m,d,9,j,1e,e,h,d,b,c,o,d,9,e;0,e,7,l,1d,e,h,d,b"
+  + ",c,o,d,a,d,n,23,k,1s,m,d,8,k,1e,e,h,d,b,c,o,c,a,e;0,e,6,m,1d,e,h,d,b,c,o,c,b,d,n,23,k,1s"
+  + ",m,d,7,m,1d,e,h,d,b,c,o,c,a,e;0,e,5,o,1c,e,h,d,c,c,m,d,b,d,n,23,k,1s,m,d,6,o,1c,e,h,d,c,"
+  + "c,m,d,a,e;0,e,4,q,1b,e,h,d,c,c,m,d,b,d,n,23,k,1s,m,d,5,q,1b,e,h,d,c,c,m,d,a,e;0,e,3,s,1a"
+  + ",e,h,d,c,d,l,c,c,d,n,23,k,1s,m,d,4,r,1b,e,h,d,c,c,m,c,b,e;0,e,3,s,1a,e,h,d,d,c,k,d,c,d,n"
+  + ",23,k,1s,m,d,3,t,1a,e,h,d,d,c,k,d,b,e;0,e,2,u,19,e,h,d,d,c,k,d,c,d,n,23,k,1s,m,d,2,v,19,"
+  + "e,h,d,d,c,k,c,c,e;0,e,1,w,18,e,h,d,d,c,k,c,d,d,n,23,k,1s,m,d,2,w,18,e,h,d,d,c,k,c,c,e;0,"
+  + "v,1,g,17,e,h,d,e,c,j,c,d,d,n,23,k,1s,m,v,1,f,18,e,h,d,e,c,i,d,c,e;0,u,3,f,17,e,h,d,e,c,i"
+  + ",d,d,d,n,23,k,1s,m,u,3,f,17,e,h,d,e,c,i,d,c,e;0,t,4,g,16,e,h,d,e,d,h,c,e,d,n,23,k,1s,m,t"
+  + ",4,g,16,e,h,d,e,c,i,c,d,e;0,s,6,g,15,e,h,d,f,c,h,c,e,d,n,d,1c,e,k,e,20,s,6,g,15,e,h,d,f,"
+  + "c,g,d,d,e;0,r,8,g,14,e,h,d,f,c,g,d,e,d,n,d,1c,e,k,e,20,r,8,f,15,e,h,d,f,c,g,c,e,e;0,q,a,"
+  + "f,14,e,h,d,g,b,g,c,f,d,n,d,1c,e,k,e,20,q,9,g,14,e,h,d,f,c,g,c,e,e;0,p,b,g,13,e,h,d,g,c,f"
+  + ",c,f,d,n,d,1c,e,k,e,20,p,b,g,13,e,h,d,g,c,e,d,e,e;0,o,d,g,12,e,h,d,g,c,e,d,f,d,n,d,1c,e,"
+  + "k,e,20,o,d,g,12,e,h,d,g,c,e,d,e,e;0,o,e,f,12,e,h,d,g,c,e,c,g,d,n,d,1c,e,k,e,20,n,e,g,12,"
+  + "e,h,d,g,c,e,c,f,e;0,n,f,g,11,e,h,d,h,c,d,c,g,d,n,d,1c,e,k,e,20,m,g,g,11,e,h,d,h,c,d,c,f,"
+  + "e;0,m,h,g,10,e,h,d,h,c,c,d,g,d,n,d,1c,e,k,e,20,l,i,g,10,e,h,d,h,c,c,c,g,e;0,l,j,g,z,e,h,"
+  + "d,i,b,c,c,h,d,n,d,1c,e,k,e,20,k,k,g,z,e,h,d,h,c,c,c,g,e;0,k,k,h,y,e,h,d,i,c,b,c,h,d,n,d,"
+  + "1c,e,k,e,20,k,k,g,z,e,h,d,i,c,b,c,g,e;0,j,m,g,y,e,h,d,i,c,a,d,h,d,n,d,1c,e,k,e,20,i,n,g,"
+  + "y,e,h,d,i,c,a,d,g,e;0,i,o,g,x,e,h,d,j,b,a,c,i,d,n,d,1c,e,k,e,20,i,o,g,x,e,h,d,i,c,a,c,h,"
+  + "e;0,h,p,h,w,e,h,d,j,c,9,c,i,d,n,d,1c,e,k,e,20,h,p,h,w,e,h,d,j,b,a,c,h,e;0,g,r,h,v,e,h,d,"
+  + "j,c,8,d,i,d,n,d,1c,e,k,e,20,g,r,g,w,e,h,d,j,c,8,c,i,e;0,f,t,g,v,e,h,d,k,b,8,c,j,d,n,d,1c"
+  + ",e,k,e,20,f,t,g,v,e,h,d,j,c,8,c,i,e;0,e,u,h,u,e,h,d,k,c,7,c,j,d,n,d,1c,e,k,e,20,e,u,h,u,"
+  + "e,h,d,k,b,8,c,i,e;0,e,v,h,t,e,h,d,k,c,7,c,j,d,n,d,1c,e,k,e,20,d,w,h,t,e,h,d,k,c,6,d,i,e;"
+  + "0,e,w,g,t,e,h,d,l,b,6,c,k,d,n,d,1c,e,k,e,20,d,x,g,t,e,h,d,k,c,6,c,j,e;0,e,w,h,s,e,h,d,l,"
+  + "c,5,c,k,d,n,d,1c,e,k,e,20,d,x,h,s,e,h,d,l,b,6,c,j,e;0,e,x,h,r,e,h,d,l,c,5,c,k,d,n,d,1c,e"
+  + ",k,e,20,d,y,h,r,e,h,d,l,c,4,d,j,e;0,e,y,h,q,e,h,d,m,b,4,c,l,d,n,d,1c,e,k,e,20,d,z,g,r,e,"
+  + "h,d,l,c,4,c,k,e;0,e,z,h,p,e,h,d,m,c,3,c,l,d,n,d,1c,e,k,e,20,d,z,h,q,e,h,d,m,b,4,c,k,e;0,"
+  + "e,z,h,p,e,h,d,m,c,3,c,l,d,n,d,1c,e,k,e,20,d,10,h,p,e,h,d,m,c,3,c,k,e;0,e,10,h,o,e,h,d,n,"
+  + "b,2,c,m,d,n,d,1c,e,k,e,20,d,11,h,o,e,h,d,m,c,2,c,l,e;0,e,11,h,n,e,h,d,n,c,1,c,m,d,n,d,1c"
+  + ",e,k,e,20,d,11,h,o,e,h,d,n,b,2,c,l,e;0,e,11,h,n,e,h,d,n,c,1,c,m,d,n,d,1c,e,k,e,20,d,12,h"
+  + ",n,e,h,d,n,c,1,c,l,e;0,e,12,h,m,e,h,d,o,n,n,d,n,d,1c,e,k,e,20,d,13,h,m,e,h,d,o,n,m,e;0,e"
+  + ",13,h,l,e,h,d,o,n,n,d,n,d,1c,e,k,e,20,d,14,h,l,e,h,d,o,n,m,e;0,e,13,i,k,e,h,d,o,n,n,d,n,"
+  + "d,1c,e,k,e,20,d,14,i,k,e,h,d,o,m,n,e;0,e,14,h,k,e,h,d,p,l,o,d,n,d,1c,e,k,e,20,d,15,h,k,e"
+  + ",h,d,o,m,n,e;0,e,15,h,j,e,h,d,p,l,o,d,n,d,1c,e,k,1x,h,d,15,i,j,e,h,d,p,l,n,e;0,e,15,i,i,"
+  + "e,h,d,p,l,o,d,n,d,1c,e,k,1x,h,d,16,i,i,e,h,d,p,l,n,e;0,e,16,i,h,e,h,d,q,j,p,d,n,d,1c,e,k"
+  + ",1x,h,d,17,h,i,e,h,d,q,j,o,e;0,e,17,h,h,e,h,d,q,j,p,d,n,d,1c,e,k,1x,h,d,17,i,h,e,h,d,q,j"
+  + ",o,e;0,e,17,i,g,e,h,d,q,j,p,d,n,d,1c,e,k,1x,h,d,18,i,g,e,h,d,q,i,p,e;0,e,18,i,f,e,h,d,r,"
+  + "h,q,d,n,d,1c,e,k,1x,h,d,19,i,f,e,h,d,q,i,p,e;0,e,19,i,e,e,h,d,r,h,q,d,n,d,1c,e,k,1x,h,d,"
+  + "1a,h,f,e,h,d,r,h,p,e;0,e,1a,h,e,e,h,d,r,h,q,d,n,d,1c,e,k,1x,h,d,1a,i,e,e,h,d,r,h,p,e;0,e"
+  + ",1a,i,d,e,h,d,s,f,r,d,n,d,1c,e,k,1x,h,d,1b,i,d,e,h,d,s,f,q,e;0,e,1b,i,c,e,h,d,s,f,r,d,n,"
+  + "d,1c,e,k,1x,h,d,1c,i,c,e,h,d,s,f,q,e;0,e,1b,j,b,e,h,d,s,f,r,d,n,d,1c,e,k,1x,h,d,1c,i,c,e"
+  + ",h,d,s,e,r,e;0,e,1c,i,b,e,h,d,t,d,s,d,n,d,1c,e,k,1x,h,d,1d,i,b,e,h,d,t,d,r,e";
+
+const CELL_ASPECT = 0.5;
+const LADDER = ".,+*W&#@";
+const DENIM_RAMP = " .:-+*#";     // 데님 직조용 좁은 글리프 사다리
+const RIBBON_RAMP = " .,-:=#";    // 새틴 리본용 매끈한 사다리
+
+const M_TREE = 0, M_RIBBON = 3, M_RIBBON_HI = 4, M_TAG = 5,
+      M_BOX = 6, M_BOX_HI = 7;
+
+const THEMES = [
+  { key:"denim", name:"DENIM & PINK",
+    bg:[4,6,12],
+    pal:{ 0:[[47,88,133],[75,127,181],[104,156,207],[141,186,227],[189,216,240]],
+          3:[[198,124,150],[232,158,182]],
+          4:[[255,214,228],[255,188,210]],
+          5:[[246,243,236]],
+          6:[[226,219,206],[242,237,226]],
+          7:[[250,246,238]],
+          8:[[255,252,248]],
+          9:[[176,206,248]] } },
+  { key:"holiday", name:"HOLIDAY CLASSIC",
+    bg:[6,5,4],
+    pal:{ 0:[[20,52,34],[32,84,52],[56,116,68],[120,160,92]],
+          3:[[150,26,38],[188,44,52]],
+          4:[[255,206,150],[246,160,120]],
+          5:[[248,240,220]],
+          6:[[150,112,58],[184,146,82]],
+          7:[[224,190,120]],
+          8:[[255,232,168]],
+          9:[[255,228,170]] } },
+  { key:"noir", name:"NOIR & PEARL",
+    bg:[3,4,7],
+    pal:{ 0:[[44,50,62],[74,84,100],[112,124,144],[186,198,216]],
+          3:[[120,130,148],[150,160,178]],
+          4:[[236,242,250],[206,216,232]],
+          5:[[238,240,244]],
+          6:[[70,76,88],[104,112,126]],
+          7:[[156,166,182]],
+          8:[[255,255,255]],
+          9:[[226,234,246]] } }
+];
+
+/* ---------- 로고 RLE 디코드 ---------- */
+let MASK = null;
+function decodeLogo(){
+  if (MASK) return MASK;
+  const rows = [];
+  const lines = LOGO_RLE.split(";");
+  for (let li=0; li<lines.length; li++){
+    const row = new Uint8Array(LOGO_W);
+    let x = 0, on = 0;
+    const toks = lines[li].split(",");
+    for (let i=0;i<toks.length;i++){
+      const n = parseInt(toks[i], 36);
+      if (on && n){ const end = Math.min(LOGO_W, x+n); for(let k=x;k<end;k++) row[k]=1; }
+      x += n; on ^= 1;
+    }
+    rows.push(row);
+  }
+  MASK = rows; return rows;
+}
+
+function sampleMask(cols, rows, y0, y1, ss){
+  ss = ss || 3;
+  const mask = decodeLogo();
+  const out = [];
+  const span = Math.max(1, y1-y0);
+  const xmap = [];
+  for (let c=0;c<cols;c++){
+    const arr = [];
+    for (let i=0;i<ss;i++) arr.push(Math.min(LOGO_W-1, Math.floor((c+(i+0.5)/ss)*LOGO_W/cols)));
+    xmap.push(arr);
+  }
+  for (let r=0;r<rows;r++){
+    const acc = new Float32Array(cols);
+    for (let j=0;j<ss;j++){
+      let yy = y0 + Math.floor((r+(j+0.5)/ss)*span/rows);
+      yy = yy<0?0:(yy>=LOGO_H?LOGO_H-1:yy);
+      const src = mask[yy];
+      for (let c=0;c<cols;c++){
+        let s=0; const arr = xmap[c];
+        for (let i=0;i<ss;i++) s += src[arr[i]];
+        acc[c] += s/ss;
+      }
+    }
+    out.push(acc);
+  }
+  return out;
+}
+
+function logoGrid(cols){
+  let rows = Math.max(6, Math.round(cols*CELL_ASPECT/LOGO_ASPECT));
+  let macRows = rows < 26 ? 1 : 2;
+  let capRows = rows - macRows - 1;
+  if (capRows < 5){ macRows = 1; capRows = Math.max(4, rows-2); }
+  const mac = sampleMask(cols, macRows, 0, LOGO_MAC_BOTTOM+1);
+  const caps = sampleMask(cols, capRows, LOGO_CAP_TOP, LOGO_H);
+  return mac.concat([new Float32Array(cols)], caps);
+}
+
+/* ---------- 무대 기하 ---------- */
+const WB_TOP = 0.66, WB_BOT = 0.98;
+const APEX = 0.96, BASE = 3.42, RADIUS = 1.02, TIERS = 6, BOW_Y = 0.80;
+const SCENE_TOP = 0.10, SCENE_BOTTOM = 4.34, SCENE_HALF_W = 1.62;
+const LIGHT = norm3(-0.42, -0.58, -0.70);
+
+function norm3(x,y,z){ const d=Math.hypot(x,y,z)||1; return [x/d,y/d,z/d]; }
+
+/* 겹겹이 쌓인 청바지: 층마다 허리에서 밑단으로 벌어지고, 층 경계에서 한 번 꺾인다 */
+function tierGeom(y){
+  let t = (y-APEX)/(BASE-APEX); t = t<0?0:(t>1?1:t);
+  const tt = t*TIERS;
+  const i = Math.min(TIERS-1, Math.floor(tt));
+  const u = tt - i;
+  const R = RADIUS*(0.20 + 0.80*Math.pow(t, 0.95));
+  const r = R*(0.80 + 0.34*u);
+  return { r, u, t, i, R };
+}
+/* 높이별 매끈한 원뿔 반경 (밑단·포켓 배치용) */
+function coneR(t){
+  t = t<0?0:(t>1?1:t);
+  return RADIUS*(0.20 + 0.80*Math.pow(t, 0.95));
+}
+
+/* 납작하게 옆으로 뻗은 새틴 고리 (왼쪽 절반, 오른쪽은 좌우 반전) */
+const BOW_POLYS = (()=>{
+  const left = [[-0.070,-0.025],[-0.115,-0.070],[-0.19,-0.150],[-0.30,-0.235],
+                [-0.43,-0.288],[-0.54,-0.300],[-0.615,-0.268],[-0.655,-0.190],
+                [-0.668,0.000],[-0.655,0.190],[-0.615,0.268],[-0.54,0.300],
+                [-0.43,0.288],[-0.30,0.235],[-0.19,0.150],[-0.115,0.070],[-0.070,0.025]];
+  return [left, left.map(p=>[-p[0],p[1]])];
+})();
+
+function inpoly(x,y,poly){
+  let inside=false, j=poly.length-1;
+  for (let i=0;i<poly.length;i++){
+    const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
+    if (((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
+    j=i;
+  }
+  return inside;
+}
+
+/* ---------- 장면(복셀) 만들기 ---------- */
+function buildScene(U, seed){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
+  let s = seed || 20261123;
+  const rnd = ()=>{ s = (s*1664525 + 1013904223) % 4294967296; return s/4294967296; };
+  const vox = [];
+
+  /* --- 허리밴드 · 플라이: 좁은 청바지 허리 + 지퍼 라인 + 버튼 --- */
+  for (let y=WB_TOP; y<=WB_BOT+1e-9; y+=cellH*0.70){
+    const f = (y-WB_TOP)/(WB_BOT-WB_TOP);
+    const rx = 0.240 + 0.028*f, rz = 0.170 + 0.020*f;
+    const n = Math.max(16, Math.round(2*Math.PI*rx/cellW*1.5));
+    const stitch = (f < 0.16 || f > 0.84);
+    for (let i=0;i<n;i++){
+      const th = 2*Math.PI*(i+0.5)/n;
+      const x = rx*Math.cos(th), z = rz*Math.sin(th);
+      const nn = norm3(x/(rx*rx), -0.10, z/(rz*rz));
+      const v = stitch ? 0.96 : ((f<0.30||f>0.70) ? 0.56 : 0.30 + 0.10*Math.sin(th*3));
+      vox.push([x, y, z, nn[0],nn[1],nn[2], rnd(), M_TREE, v]);
+    }
+  }
+  for (let k=0;k<Math.round(0.30/cellH);k++){
+    const yy = WB_TOP + 0.09 + k*cellH;
+    for (const dx of [-0.55, 0.55])
+      vox.push([dx*cellW, yy, -0.173, 0,0,-1, rnd(), M_TREE, 0.94]);
+    if (k % 2 === 0 && k > 0)
+      vox.push([0, yy, -0.176, 0,0,-1, rnd(), M_TREE, 0.30]);
+  }
+  vox.push([0, WB_TOP+0.05, -0.178, 0,0,-1, rnd(), M_TREE, 1.0]);
+  vox.push([cellW*0.9, WB_TOP+0.05, -0.176, 0,0,-1, rnd(), M_TREE, 1.0]);
+
+  /* --- 트리: 겹겹이 쌓인 데님 층 --- */
+  for (let y=APEX; y<=BASE+1e-9; y+=cellH*0.60){
+    const g = tierGeom(y);
+    const flare = 1 + 0.12*Math.pow(Math.max(0,(y-(BASE-0.44))/0.50), 1.3);
+    const r = g.r*flare;
+    const n = Math.max(12, Math.round(2*Math.PI*r/cellW*1.9));
+    for (let i=0;i<n;i++){
+      const th = 2*Math.PI*(i+0.5)/n + 0.26*Math.sin(y*1.9 + g.i);
+      const fold = 1 + 0.030*Math.sin(5*th + 2.2*g.i) + 0.017*Math.sin(9*th - 2.4*y);
+      const rr = r*fold;
+      const x = rr*Math.cos(th), z = rr*Math.sin(th);
+      /* 가랑이: 아래로 갈수록 벌어지는 앞쪽 V 홈 */
+      if (y > BASE-0.22 && z < 0 && Math.abs(x) < 0.02 + 0.45*(y-(BASE-0.22))) continue;
+      const nn = norm3(Math.cos(th), -0.34 - 0.10*Math.sin(y*2.2 + g.i), Math.sin(th));
+      const wash = 0.5 + 0.5*Math.sin(th*2.0 + y*3.4 + g.i*1.9);
+      const band = (g.i % 2) ? 0.10 : 0;
+      /* 층 밑단 바로 위는 그늘, 밑단 턱은 밝게 */
+      const shadow = g.u > 0.80 ? -0.10*(g.u-0.80)/0.20 : 0;
+      const lip = g.u > 0.90 ? 0.16 : 0;
+      let v = 0.30 + 0.18*Math.pow(1-g.t,0.9) + band + 0.24*Math.pow(1-g.u,1.4) + 0.07*wash + shadow + lip;
+      v = Math.max(0, Math.min(0.999, v));
+      vox.push([x, y, z, nn[0],nn[1],nn[2], rnd(), M_TREE, v]);
+    }
+  }
+
+  /* --- 층 밑단: 비대칭으로 흔들리는 밝은 헴 --- */
+  for (let i=0;i<TIERS;i++){
+    const tHem=(i+1)/TIERS;
+    const yh = APEX + (BASE-APEX)*tHem;
+    const rHem = coneR(tHem)*(1.18 + 0.10*(1-tHem));
+    const n = Math.max(18, Math.round(2*Math.PI*rHem/cellW*1.7));
+    for (let k=0;k<n;k++){
+      const th = 2*Math.PI*(k+0.5)/n;
+      const yy = yh + 0.048*Math.sin(2*th + i*1.9) + 0.018*Math.sin(5*th);
+      const rr = rHem*(1 + 0.02*Math.sin(7*th + i*2.3));
+      const x = rr*Math.cos(th), z = rr*Math.sin(th);
+      if (i===TIERS-1 && z<0 && Math.abs(x) < 0.18) continue;   // 가랑이 홈
+      const nn = norm3(Math.cos(th), -0.62, Math.sin(th));
+      for (const dy of [0, cellH*0.72])
+        vox.push([x, yy+dy, z, nn[0],nn[1],nn[2], rnd(), M_TREE,
+                  0.90 + 0.08*Math.max(0,Math.sin(th*2+i))]);
+    }
+  }
+
+  /* --- 포켓 · 스티치 곡선 --- */
+  for (const [ti, thc] of [[1,-0.95],[1,-2.19],[3,-1.05]]){
+    const t0 = (ti+0.52)/TIERS;
+    const y0 = APEX + (BASE-APEX)*t0;
+    const half = 0.27;
+    const steps = Math.max(10, Math.round(2*half*coneR(t0)/cellW*1.1));
+    for (let k=0;k<=steps;k++){
+      const th = thc + (-half + 2*half*k/steps);
+      const yy = y0 + 0.085*Math.sin(Math.PI*k/steps);
+      const rr = tierGeom(yy).r*1.014;
+      const nn = norm3(Math.cos(th), -0.28, Math.sin(th));
+      vox.push([rr*Math.cos(th), yy, rr*Math.sin(th), nn[0],nn[1],nn[2], rnd(), M_TREE, 0.86]);
+    }
+  }
+
+  /* --- 리본 보우: 좁은 매듭 + 납작하게 뻗은 두 고리 --- */
+  const bx0=-0.72, bx1=0.72, by0=BOW_Y-0.34, by1=BOW_Y+0.34;
+  const bcols = Math.max(14, Math.round((bx1-bx0)/cellW));
+  const brows = Math.max(7, Math.round((by1-by0)/cellH));
+  const bmask = [];
+  for (let r=0;r<brows;r++){
+    const yy = by0 + (r+0.5)*cellH;
+    const line = new Uint8Array(bcols);
+    for (let c=0;c<bcols;c++){
+      const xx = bx0 + (c+0.5)*cellW;
+      const dy = yy - BOW_Y;
+      if (Math.abs(xx)<0.062 && Math.abs(dy)<0.105) line[c]=2;
+      else if (BOW_POLYS.some(p=>inpoly(xx, dy, p))) line[c]=1;
+    }
+    bmask.push(line);
+  }
+  const bIn = (r,c)=> r>=0 && r<brows && c>=0 && c<bcols && bmask[r][c]>0;
+  const solid = (r,c)=> bIn(r-1,c)&&bIn(r+1,c)&&bIn(r,c-1)&&bIn(r,c+1);
+  for (let r=0;r<brows;r++) for (let c=0;c<bcols;c++){
+    if (!bmask[r][c]) continue;
+    const knot = bmask[r][c]===2;
+    const groove = bmask[r][c]===3;
+    const edge = !solid(r,c) && !groove;
+    if (groove) continue;
+    const yy = by0 + (r+0.5)*cellH, xx = bx0 + (c+0.5)*cellW;
+    const dy = (yy-BOW_Y)/0.30;
+    const mat = (edge||knot) ? M_RIBBON_HI : M_RIBBON;
+    const dyr = (yy-BOW_Y)/0.30;
+    const vr = knot ? 1.0 : (edge ? 0.90 : (dyr < -0.25 ? 0.62 : (dyr > 0.35 ? 0.06
+               : 0.20 + 0.26*Math.max(0,1-Math.abs(xx)/0.8))));
+    for (const sg of [-1,1]){
+      const nn = norm3(0.85*xx, 1.5*(yy-BOW_Y), sg*0.8);
+      vox.push([xx, yy, sg*(0.235 + 0.03*(1-Math.abs(xx)/0.9)), nn[0], nn[1], nn[2], rnd(), mat, vr]);
+    }
+  }
+
+  /* --- 리본 테일: 매듭에서 트리 옆선을 따라 길게 흘러내림 --- */
+  for (const sgn of [-1,1]){
+    const steps = Math.max(30, Math.round(2.9*U/0.55));
+    for (let i=0;i<steps;i++){
+      const u = i/(steps-1);
+      const yy = BOW_Y + 0.12 + u*2.62;
+      const g = tierGeom(yy);
+      const rt = yy > APEX-0.04 ? g.r : 0.12;
+      const fr = 0.74 + 0.14*Math.sin(u*2.4);
+      const cxx = sgn*Math.max(0.12, rt*fr);
+      const zz = -Math.sqrt(Math.max(0.004, rt*rt - Math.min(rt*rt*0.94, cxx*cxx))) - 0.030;
+      const w = 0.200 + 0.060*Math.sin(Math.PI*Math.min(1,u*1.1)) - 0.070*u;
+      const across = Math.max(2, Math.round(w/cellW));
+      const edgeY = (u > 0.93) ? 0.02*Math.sin(u*40) : 0;
+      for (let k=0;k<across;k++){
+        const xx = cxx + (k-(across-1)/2)*cellW;
+        const edge = (k===0||k===across-1);
+        vox.push([xx, yy + edgeY + 0.015*Math.sin(u*8+k), zz - (edge?0:0.012), 0,0,-1, rnd(),
+                  edge?M_RIBBON_HI:M_RIBBON,
+                  edge?0.90:0.18+0.52*(1-Math.abs(k/Math.max(1,across-1)-0.5)*2)]);
+      }
+    }
+  }
+
+  /* --- 택 오너먼트 --- */
+  const tagSpots = [[1.52,-0.92],[2.10,0.62],[2.66,-1.06],[3.02,0.40]];
+  for (const [yy0, th0] of tagSpots){
+    const g = tierGeom(yy0);
+    const th = th0;
+    const cth = Math.cos(th), sth = Math.sin(th);
+    const rr = g.r;
+    const cx = rr*cth, cz = rr*sth;
+    const nn = norm3(cth, -0.1, sth);
+    const t1 = [-sth, 0, cth];
+    const w = 0.17, h = 0.21;
+    const cols = Math.max(3, Math.round(w/cellW));
+    const rows = Math.max(3, Math.round(h/cellH));
+    const oy = yy0 - h*0.5;
+    for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
+      const a = (c-(cols-1)/2)*cellW;
+      const px = cx + t1[0]*a + nn[0]*0.02;
+      const py = oy + r*cellH;
+      const pz = cz + t1[2]*a + nn[2]*0.02;
+      const edge = (c===0||c===cols-1||r===0||r===rows-1);
+      vox.push([px,py,pz, nn[0],nn[1],nn[2], rnd(), M_TAG, edge?0.42:1.0]);
+    }
+    for (let k=0;k<Math.max(2, Math.round(0.26/cellH));k++)
+      vox.push([cx, oy-k*cellH, cz-0.02, nn[0],0,nn[2], rnd(), M_TAG, 0.38]);
+  }
+
+  /* --- 기프트 박스: 트리 발치, 크게 + 또렷한 핑크 크로스 --- */
+  const boxes = [[-0.82,4.34,-0.70,1.00,0.74,0.78],
+                 [ 0.72,4.34,-0.64,0.86,0.66,0.70],
+                 [-0.04,4.34,-1.16,0.78,0.60,0.64]];
+  for (const [bx,by,bz,w,h,d] of boxes){
+    const x0=bx-w/2, x1=bx+w/2, y0=by-h, y1=by, z0=bz-d/2, z1=bz+d/2;
+    const nx=Math.max(3,Math.round(w/cellW)), ny=Math.max(3,Math.round(h/cellH)), nz=Math.max(3,Math.round(d/cellW));
+    const bw = 0.052;
+    for (let i=0;i<nx;i++) for (let k=0;k<nz;k++){
+      const xx=x0+(i+0.5)*w/nx, zz=z0+(k+0.5)*d/nz;
+      const rib = (Math.abs(xx-bx)<bw || Math.abs(zz-bz)<bw);
+      vox.push([xx,y0,zz, 0,-1,0, rnd(), rib?M_RIBBON_HI:M_BOX_HI, rib?0.96:0.94]);
+    }
+    for (const [side,zz] of [[1,z1],[-1,z0]]) for (let i=0;i<nx;i++) for (let j=0;j<ny;j++){
+      const xx=x0+(i+0.5)*w/nx, yy=y0+(j+0.5)*h/ny;
+      const rib = Math.abs(xx-bx)<bw;
+      vox.push([xx,yy,zz, 0,0,side, rnd(), rib?M_RIBBON_HI:M_BOX, rib?0.92:0.72+0.28*(1-j/ny)]);
+    }
+    for (const [side,xx] of [[1,x1],[-1,x0]]) for (let k=0;k<nz;k++) for (let j=0;j<ny;j++){
+      const zz=z0+(k+0.5)*d/nz, yy=y0+(j+0.5)*h/ny;
+      const rib = Math.abs(zz-bz)<bw;
+      vox.push([xx,yy,zz, side,0,0, rnd(), rib?M_RIBBON_HI:M_BOX, rib?0.88:0.68+0.32*(1-j/ny)]);
+    }
+    for (const dx of [-0.032,0.032]) for (const dz of [-0.028,0.028])
+      vox.push([bx+dx, y0-0.02, bz+dz, 0,-1,0, rnd(), M_RIBBON_HI, 1.0]);
+  }
+
+  return { vox, cellH, cellW, U };
+}
+
+/* ---------- 색 ---------- */
+function interp(a,b,t){ return [a[0]+(b[0]-a[0])*t, a[1]+(b[1]-a[1])*t, a[2]+(b[2]-a[2])*t]; }
+function matColor(theme, mat, v){
+  const e = theme.pal[mat];
+  if (!e) return [255,255,255];
+  if (e.length===1) return e[0];
+  v = Math.max(0, Math.min(0.999, v));
+  const i = Math.floor(v*(e.length-1)), f = v*(e.length-1)-i;
+  return (i+1<e.length) ? interp(e[i], e[i+1], f) : e[i];
+}
+
+/* ---------- 폭죽 ---------- */
+const FIRE_PERIOD = 4.6, FIRE_RISE = 0.55, FIRE_LIFE = 3.1;
+let LOGO_PTS = null, LOGO_ROWS = 1, LOGO_COLS = 1;
+function logoPoints(ncols){
+  if (LOGO_PTS) return LOGO_PTS;
+  const g = logoGrid(ncols);
+  const rows = g.length, W0 = g[0].length, t = 0.20, pts = [];
+  LOGO_ROWS = rows; LOGO_COLS = W0;
+  for (let r=0;r<rows;r++) for (let c=0;c<W0;c++){
+    if (g[r][c] <= t) continue;
+    pts.push([(c+0.5)/W0-0.5, (r+0.5)/rows-0.5, g[r][c]]);
+  }
+  LOGO_PTS = pts.length ? pts : [[0,0,1]];
+  return LOGO_PTS;
+}
+
+class Firework{
+  /* 로고를 화면 격자에 1:1로 찍어 획을 살리고, 주변에 불티와 잔불을 뿌린다 */
+  constructor(index, t0, W, H, themeIndex){
+    let s = (9173 + index*7919) >>> 0;
+    const rnd = ()=>{ s = (s*1664525 + 1013904223) % 4294967296; return s/4294967296; };
+    this.t0 = t0; this.W = W; this.H = H;
+    this.seed = rnd();
+    this.themeIndex = themeIndex;
+    this.tx = W*(0.5 + (rnd()-0.5)*0.04);
+    this.ty = Math.max(3, H*(0.070 + 0.015*rnd()));
+    this.sx = this.tx + (rnd()-0.5)*W*0.16;
+    this.sy = H*1.04;
+    this.lw = Math.max(40, Math.round(W*0.94));
+    logoPoints(this.lw);                       // 격자 폭 = 화면 폭 → 점 1개 = 셀 1개
+    this.lh = Math.max(5, LOGO_ROWS);
+    this.sparks = [];
+    for (let i=0;i<48;i++) this.sparks.push([rnd()*6.283, 0.55+0.9*rnd(), rnd()]);
+    this.embers = [];
+    for (let i=0;i<96;i++){
+      const a = rnd()*6.283, d = 0.30+0.70*Math.pow(rnd(),0.6);
+      this.embers.push([a, d, 0.5+0.9*rnd(), rnd()]);
+    }
+  }
+  draw(t, W, H, put, theme){
+    let dt = t - this.t0;
+    if (dt < 0 || dt > FIRE_RISE+FIRE_LIFE) return;
+    const pal = theme.pal;
+    if (dt < FIRE_RISE){                       // 로켓 상승
+      const u = dt/FIRE_RISE;
+      const x = this.sx + (this.tx-this.sx)*u;
+      const y = this.sy + (this.ty-this.sy)*Math.pow(u,0.82);
+      for (let k=0;k<6;k++){
+        const f = 1-k/6;
+        const c = pal[M_RIBBON_HI][0];
+        put(Math.round(x + (this.sx-this.tx)*0.010*k),
+            Math.round(y + (this.sy-this.ty)*0.010*k + k*0.6),
+            k===0?"*":(k<3?"+":"."), [c[0]*f|0, c[1]*f|0, c[2]*f|0], 1);
+      }
+      return;
+    }
+    dt -= FIRE_RISE;
+    const ease = 1 - Math.exp(-dt*5.4);
+    const fade = Math.max(0, 1 - Math.pow(dt/FIRE_LIFE, 2.0));
+    const grav = 0.5*15*dt*dt;
+    const cLogo = pal[8][0];
+    const cHi = pal[M_RIBBON_HI][0];
+    const cDn = pal[M_TREE][pal[M_TREE].length-1];
+    const cRb = pal[M_RIBBON][pal[M_RIBBON].length-1];
+    const pts = logoPoints(this.lw);
+    for (let i=0;i<pts.length;i++){
+      const u = pts[i][0], v = pts[i][1], w = pts[i][2];
+      const f = fade*(0.74 + 0.26*w);
+      if (f <= 0.05) continue;
+      const x = Math.round(this.tx + u*this.lw*ease);
+      const y = Math.round(this.ty + v*this.lh*ease + grav*0.55);
+      const c = (u < -0.16) ? cHi : (u > 0.16 ? cDn : cLogo);
+      const ch = (w > 0.55 && f > 0.55) ? ":" : (f > 0.35 ? "." : ",");
+      const fb = Math.min(1, f*1.9);
+      put(x, y, ch, [Math.min(255,c[0]*fb)|0, Math.min(255,c[1]*fb)|0, Math.min(255,c[2]*fb)|0], f);
+      /* 같은 획을 살짝 키운 잔불 → 알갱이 밀도(빈 셀만 채워 획은 그대로) */
+      const hf = Math.min(0.28, f*0.50);
+      if (hf > 0.10)
+        put(Math.round(this.tx + u*this.lw*ease*1.07),
+            Math.round(this.ty + v*this.lh*ease*1.07 + grav*0.55), ".",
+            [Math.min(255,c[0]*hf*1.6)|0, Math.min(255,c[1]*hf*1.6)|0, Math.min(255,c[2]*hf*1.6)|0], hf);
+    }
+    /* 로고를 감싸며 퍼지는 불티 */
+    if (fade > 0.10){
+      const R0 = this.lw*0.55*ease;
+      for (const [a, spd, sd] of this.sparks){
+        const dd = R0*(0.86+0.34*spd);
+        const f = fade*0.85*(0.6+0.4*sd);
+        const x = Math.round(this.tx + Math.cos(a)*dd);
+        const y = Math.round(this.ty + Math.sin(a)*dd*0.42 + grav*0.4);
+        put(x, y, f>0.55?"*":".", [Math.min(255,cRb[0]*f)|0, Math.min(255,cRb[1]*f)|0, Math.min(255,cRb[2]*f)|0], f*0.5);
+      }
+      /* 아래로 흩날리는 잔불 */
+      for (const [a, d, spd, sd] of this.embers){
+        const f = fade*0.55*(0.5+0.5*sd);
+        if (f < 0.10) continue;
+        const dd = this.lw*(0.20+0.55*d)*ease;
+        const x = Math.round(this.tx + Math.cos(a)*dd);
+        const y = Math.round(this.ty + Math.sin(a)*dd*0.55 + grav*1.5*spd);
+        put(x, y, ".", [Math.min(255,cHi[0]*f)|0, Math.min(255,cHi[1]*f)|0, Math.min(255,cHi[2]*f)|0], f);
+      }
+    }
+  }
+}
+
+/* ---------- 렌더러 ---------- */
+const canvas = document.getElementById("stage");
+const ctx = canvas.getContext("2d", {alpha:false});
+const layer = document.createElement("canvas");
+const lctx = layer.getContext("2d");
+const bloom = document.createElement("canvas");
+const bctx = bloom.getContext("2d");
+
+let W = 0, H = 0, DPR = 1;
+let cols = 0, rows = 0, cellW = 10, cellH = 20, fontSize = 17;
+let themeIndex = 0, autoRotate = true, speedMul = 1, resStep = 0;
+let scene = null, sceneKey = "";
+let stars = [];
+let extras = [];           // 수동 발사 시각
+const fireCache = new Map();
+let yawDrag = 0, pitchDrag = 0, dragging = false, lastX = 0, lastY = 0;
+let charBuf, colorBuf, zbuf, occ;
+
+function theme(){ return THEMES[themeIndex]; }
+
+function layout(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  W = Math.floor(window.innerWidth);
+  H = Math.floor(window.innerHeight);
+  canvas.width = Math.floor(W*DPR); canvas.height = Math.floor(H*DPR);
+  canvas.style.width = W+"px"; canvas.style.height = H+"px";
+  layer.width = canvas.width; layer.height = canvas.height;
+  bloom.width = Math.floor(canvas.width/2); bloom.height = Math.floor(canvas.height/2);
+
+  // 문자 셀 크기: 화면 높이에 맞춰 약 100~120행
+  const targetRows = [104, 120, 136][resStep % 3];
+  cellH = Math.max(9, H/targetRows);
+  cellW = cellH*CELL_ASPECT;
+  fontSize = cellH*0.92;
+  cols = Math.floor(W/cellW);
+  rows = Math.floor(H/cellH);
+  lctx.font = `700 ${fontSize*DPR}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  lctx.textBaseline = "top";
+  charBuf = new Array(cols*rows);
+  colorBuf = new Array(cols*rows);
+  zbuf = new Float32Array(cols*rows);
+  occ = new Uint8Array(cols*rows);
+
+  stars = [];
+  let s = 7717;
+  const rnd = ()=>{ s = (s*1664525 + 1013904223) % 4294967296; return s/4294967296; };
+  const n = Math.round(cols*rows*0.055);
+  for (let i=0;i<n;i++)
+    stars.push([rnd()*cols|0, rnd()*rows|0, rnd()*6.283, [0.14,0.24,0.38,0.55,0.82][(rnd()*5)|0], rnd()<0.10]);
+
+  sceneKey = "";
+  LOGO_PTS = null;
+}
+
+function ensureScene(U){
+  const key = U.toFixed(2);
+  if (sceneKey !== key){ scene = buildScene(U); sceneKey = key; }
+  return scene;
+}
+
+/* ---------- 프레임 ---------- */
+let t0 = performance.now(), pausedTime = 0, now = 0;
+
+function frame(ts){
+  const t = (ts - t0)/1000;
+  now = t;
+  const th = theme();
+  const bg = th.bg;
+
+  // 배경
+  ctx.setTransform(1,0,0,1,0,0);
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0, `rgb(${bg[0]+8},${bg[1]+9},${bg[2]+14})`);
+  g.addColorStop(1, `rgb(${bg[0]},${bg[1]},${bg[2]})`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  const logoCols = Math.max(24, Math.round(cols*0.78));
+  const logoRows = logoGrid(logoCols);
+  const logoH = logoRows.length;
+  const captionRows = 7;
+  const logoTop = rows - captionRows - logoH - 1;
+  const artBottom = logoTop - 2;
+
+  // 스케일
+  const Uw = (cols*0.94)*CELL_ASPECT/(SCENE_HALF_W*2);
+  const Uh = artBottom/(SCENE_BOTTOM-SCENE_TOP);
+  const U = Math.max(6, Math.min(Uw, Uh))*0.86;
+  const sc = ensureScene(U);
+
+  // 버퍼 초기화
+  charBuf.fill(" ");
+  colorBuf.fill(null);
+  zbuf.fill(1e18);
+
+  // 별
+  const starC = th.pal[9][0];
+  for (const [sx0, sy0, ph, mag, big] of stars){
+    if (sy0 > logoTop-1) continue;
+    const tw = Math.sin(t*1.6+ph);
+    const b = (0.2 + 0.8*Math.pow(tw*tw,2))*mag;
+    if (b < 0.04) continue;
+    const idx = sy0*cols+sx0;
+    charBuf[idx] = big ? "+" : (b>0.5?"*":".");
+    colorBuf[idx] = [starC[0]*b|0, starC[1]*b|0, starC[2]*b|0];
+    zbuf[idx] = -1e17;
+  }
+
+  // 3D
+  const yaw = 0.22 + (autoRotate ? 0.30*Math.sin(t*0.45*speedMul) : 0) + yawDrag;
+  const pitch = 0.19 + 0.05*Math.sin(t*0.31*speedMul+0.8) + pitchDrag;
+  const cy_ = Math.cos(yaw), sy_ = Math.sin(yaw);
+  const cp = Math.cos(pitch), sp = Math.sin(pitch);
+  const f = 9.0;
+  const cx = cols*0.5;
+  const cyc = artBottom*0.56;
+  const toCol = 1/sc.cellW, toRow = 1/sc.cellH;
+  const lx=LIGHT[0], ly=LIGHT[1], lz=LIGHT[2];
+  const cyScene = (SCENE_TOP+SCENE_BOTTOM)*0.5;
+
+  const proj = [];
+  const vox = sc.vox;
+  for (let i=0;i<vox.length;i++){
+    const p = vox[i];
+    const rx = p[0], ry = p[1]-cyScene, rz = p[2];
+    const X = rx*cy_ + rz*sy_;
+    const Z1 = -rx*sy_ + rz*cy_;
+    const Y = ry*cp - Z1*sp;
+    const Z2 = ry*sp + Z1*cp;
+    const pr = f/Math.max(0.5, f+Z2);
+    const sx = Math.round(cx + X*pr*toCol);
+    const sy = Math.round(cyc + Y*pr*toRow);
+    if (sx<0||sx>=cols||sy<0||sy>=artBottom) continue;
+    const idx = sy*cols+sx;
+    if (Z2 >= zbuf[idx]) continue;
+    const nx=p[3], ny=p[4], nz=p[5];
+    const NX = nx*cy_ + nz*sy_;
+    const NZ1 = -nx*sy_ + nz*cy_;
+    const NY = ny*cp - NZ1*sp;
+    const NZ2 = ny*sp + NZ1*cp;
+    let lam = NX*lx + NY*ly + NZ2*lz;
+    if (lam < 0) lam = 0;
+    zbuf[idx] = Z2;
+    proj.push([idx, Z2, p[6], p[7], p[8], lam]);
+  }
+
+  if (proj.length){
+    let dmin=Infinity, dmax=-Infinity;
+    for (const q of proj){ if(q[1]<dmin)dmin=q[1]; if(q[1]>dmax)dmax=q[1]; }
+    const dspan = Math.max(1e-6, dmax-dmin);
+    const nlv = LADDER.length-1;
+    for (const [idx, Z2, seed, mat, vr, lam0] of proj){
+      const lam = lam0;
+      const dk = (Z2-dmin)/dspan;
+      const lam2 = 0.5 + 0.5*lam;                 // 반-램버트: 그늘도 정보가 남게
+      let b = (0.10 + 0.84*Math.pow(lam2,1.5) + 0.22*Math.pow(lam2,10)) * (1 - 0.18*dk);
+      b = Math.max(0, Math.min(0.95, b));
+      if (mat === M_RIBBON || mat === M_RIBBON_HI) b = Math.min(1, 0.35 + 0.80*b);
+      const jit = (seed-0.5)*0.09;
+      const c = matColor(th, mat, vr);
+      let ch;
+      if (mat === M_TREE){
+        /* 데님 직조: 셀 격자에 따라 도는 대각 텍스처 + 밝기 */
+        const px = idx % cols, py = (idx/cols)|0;
+        ch = (((px + py) % 4 === 0) || b < 0.22) ? "." : ":";
+        if (vr > 0.90) ch = "=";                 // 밑단 헴 · 스티치
+      } else if (mat === M_RIBBON || mat === M_RIBBON_HI){
+        /* 리본은 밝기 대신 역할(매듭/테두리/안감)로 글자를 고른다 */
+        ch = (vr >= 0.99) ? "@" : (vr >= 0.84 ? "#" : (vr > 0.30 ? ":" : "-"));
+      } else if (mat === M_TAG){
+        ch = (vr > 0.8) ? "#" : ":";
+      } else {
+        ch = (vr >= 0.94) ? "=" : (b > 0.66 ? "+" : (b > 0.36 ? "-" : "."));
+      }
+      const shade = 0.64 + 0.40*b;
+      charBuf[idx] = ch;
+      colorBuf[idx] = [Math.min(255,c[0]*shade)|0, Math.min(255,c[1]*shade)|0, Math.min(255,c[2]*shade)|0];
+    }
+
+    /* 실루엣 외곽선: 행마다 양 끝 셀을 밝은 워싱으로 물들인다 */
+    occ.fill(0);
+    for (const q of proj) if (q[3] === M_TREE) occ[q[0]] = 1;
+    const edgeC = th.pal[0][th.pal[0].length-1];
+    const fillC = th.pal[0][1];                    // 워싱 중간톤
+    for (let y=0;y<artBottom;y++){
+      const rb = y*cols;
+      let lo=-1, hi=-1, prev=-1;
+      for (let x=0;x<cols;x++){
+        if (!occ[rb+x]) continue;
+        if (lo<0) lo=x;
+        hi=x;
+        if (prev >= 0 && x - prev > 1 && x - prev <= 14){   // 안쪽 구멍은 데님으로 메움
+          const k0 = (x - prev > 4) ? 0.58 : 0.78;
+          for (let k=prev+1;k<x;k++){
+            if (charBuf[rb+k] === " " || colorBuf[rb+k] === null){
+              charBuf[rb+k] = ":";
+              colorBuf[rb+k] = [fillC[0]*k0|0, fillC[1]*k0|0, fillC[2]*k0|0];
+            }
+          }
+        }
+        prev = x;
+      }
+      if (lo<0) continue;
+      charBuf[rb+lo] = "#"; colorBuf[rb+lo] = edgeC;
+      charBuf[rb+hi] = "#"; colorBuf[rb+hi] = edgeC;
+    }
+  }
+
+  // 폭죽 (3D 위)
+  const put = (x,y,ch,c,f)=>{
+    if (x<0||x>=cols||y<0||y>=Math.min(logoTop,rows)) return;
+    const idx = y*cols+x;
+    if (f > 0.30 || colorBuf[idx] === null){
+      charBuf[idx] = ch; colorBuf[idx] = c;
+    }
+  };
+  const latest = Math.floor(t/FIRE_PERIOD);
+  for (let i=Math.max(0,latest-2); i<=latest; i++){
+    const ft0 = i*FIRE_PERIOD + 1.0;
+    if (t-ft0 <= FIRE_RISE+FIRE_LIFE)
+      new Firework(i, ft0, cols, Math.min(logoTop,rows), themeIndex).draw(t, cols, logoTop, put, th);
+  }
+  for (let j=0;j<extras.length;j++){
+    const ft0 = extras[j];
+    if (t-ft0 >= 0 && t-ft0 <= FIRE_RISE+FIRE_LIFE)
+      new Firework(5000+j, ft0, cols, Math.min(logoTop,rows), themeIndex).draw(t, cols, logoTop, put, th);
+  }
+  extras = extras.filter(x => t-x < FIRE_RISE+FIRE_LIFE);
+
+  // ---- 그리기 (문자 레이어 → 블룸 → 합성)
+  lctx.setTransform(1,0,0,1,0,0);
+  lctx.clearRect(0,0,layer.width,layer.height);
+  lctx.font = `700 ${fontSize*DPR}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  lctx.textBaseline = "top";
+  let lastColor = "";
+  for (let y=0;y<rows;y++){
+    const py = y*cellH*DPR;
+    for (let x=0;x<cols;x++){
+      const idx = y*cols+x;
+      const c = colorBuf[idx];
+      if (c === null || charBuf[idx] === " ") continue;
+      const key = c[0]+","+c[1]+","+c[2];
+      if (key !== lastColor){ lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; lastColor = key; }
+      lctx.fillText(charBuf[idx], x*cellW*DPR, py);
+    }
+  }
+
+  // 로고 (아래, 평면)
+  const logoC = th.pal[8][0];
+  const lx0 = Math.floor((cols-logoCols)/2);
+  for (let r=0;r<logoH;r++){
+    const yy = logoTop+r;
+    if (yy<0||yy>=rows) continue;
+    const rowv = logoRows[r];
+    for (let c=0;c<logoCols;c++){
+      if (rowv[c] <= 0.34) continue;
+      const ch = rowv[c] > 0.56 ? "#" : (rowv[c] > 0.26 ? "+" : ".");
+      const k = (r<2?1.0:0.86) * (ch==="#"?0.97:(ch==="+"?0.72:0.42));
+      const xx = lx0+c;
+      if (xx<0||xx>=cols) continue;
+      const idx = yy*cols+xx;
+      charBuf[idx] = ch;
+      colorBuf[idx] = [logoC[0]*k|0, logoC[1]*k|0, logoC[2]*k|0];
+      lctx.fillStyle = `rgb(${colorBuf[idx][0]},${colorBuf[idx][1]},${colorBuf[idx][2]})`;
+      lctx.fillText(ch, xx*cellW*DPR, yy*cellH*DPR);
+    }
+  }
+
+  // 블룸
+  bctx.setTransform(1,0,0,1,0,0);
+  bctx.clearRect(0,0,bloom.width,bloom.height);
+  bctx.filter = "blur(3px)";
+  bctx.drawImage(layer, 0,0, bloom.width, bloom.height);
+  bctx.filter = "none";
+
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.globalCompositeOperation = "lighter";
+  ctx.globalAlpha = 0.55;
+  ctx.drawImage(bloom, 0,0, canvas.width, canvas.height);
+  ctx.globalAlpha = 1.0;
+  ctx.drawImage(layer, 0,0);
+  ctx.globalCompositeOperation = "source-over";
+
+  requestAnimationFrame(frame);
+}
+
+/* ---------- 입력 ---------- */
+function launch(x, y){
+  const t = (performance.now()-t0)/1000;
+  extras.push(t);
+  if (extras.length > 8) extras.shift();
+}
+canvas.addEventListener("pointerdown", e=>{
+  dragging = true; lastX = e.clientX; lastY = e.clientY;
+  canvas.classList.add("drag");
+  canvas.setPointerCapture(e.pointerId);
+});
+canvas.addEventListener("pointermove", e=>{
+  if (!dragging) return;
+  yawDrag += (e.clientX-lastX)*0.006;
+  pitchDrag += (e.clientY-lastY)*0.0022;
+  pitchDrag = Math.max(-0.35, Math.min(0.55, pitchDrag));
+  lastX = e.clientX; lastY = e.clientY;
+});
+canvas.addEventListener("pointerup", e=>{
+  const moved = Math.abs(e.clientX-lastX)+Math.abs(e.clientY-lastY);
+  dragging = false; canvas.classList.remove("drag");
+  if (moved < 6) launch(e.clientX, e.clientY);
+});
+canvas.addEventListener("pointercancel", ()=>{ dragging=false; canvas.classList.remove("drag"); });
+
+const buttons = document.querySelectorAll(".bar button");
+buttons.forEach(btn=>{
+  btn.addEventListener("click", ()=>{
+    const act = btn.dataset.act;
+    if (act === "auto"){ autoRotate = !autoRotate; btn.classList.toggle("on", autoRotate); }
+    if (act === "theme"){
+      themeIndex = (themeIndex+1)%THEMES.length;
+      btn.textContent = "◐ " + theme().name;
+    }
+    if (act === "res"){ resStep = (resStep+1)%3; layout(); }
+    if (act === "speed"){
+      speedMul = speedMul >= 3 ? 0.5 : speedMul*1.5;
+      btn.textContent = "» SPEED ×" + speedMul.toFixed(1);
+    }
+    if (act === "burst") launch(W/2, H*0.2);
+  });
+});
+window.addEventListener("keydown", e=>{
+  if (e.code === "Space"){ e.preventDefault(); autoRotate = !autoRotate;
+    document.querySelector('[data-act="auto"]').classList.toggle("on", autoRotate); }
+  if (e.key === "t" || e.key === "T"){
+    themeIndex = (themeIndex+1)%THEMES.length;
+    document.querySelector('[data-act="theme"]').textContent = "◐ " + theme().name;
+  }
+  if (e.key === "f" || e.key === "F") launch(W/2, H*0.2);
+});
+let rt = null;
+window.addEventListener("resize", ()=>{ clearTimeout(rt); rt = setTimeout(layout, 160); });
+
+layout();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
