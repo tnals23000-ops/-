@@ -152,8 +152,8 @@ const THEMES = [
   { key:"denim", name:"DENIM & PINK",
     bg:[4,6,12],
     pal:{ 0:[[47,88,133],[75,127,181],[104,156,207],[141,186,227],[189,216,240]],
-          3:[[198,124,150],[232,158,182]],
-          4:[[255,214,228],[255,188,210]],
+          3:[[214,132,164],[240,168,198]],
+          4:[[255,226,240],[255,196,222]],
           5:[[246,243,236]],
           6:[[226,219,206],[242,237,226]],
           7:[[250,246,238]],
@@ -240,80 +240,111 @@ function logoGrid(cols){
 }
 
 /* ---------- 무대 기하 ---------- */
-const WB_TOP = 0.66, WB_BOT = 0.98;
-const APEX = 0.96, BASE = 3.42, RADIUS = 1.02, TIERS = 6, BOW_Y = 0.80;
-const SCENE_TOP = 0.10, SCENE_BOTTOM = 4.34, SCENE_HALF_W = 1.62;
+/* 단위: 트리 높이 ≈ 2.5. y 는 아래로 증가, z 는 화면 안쪽. */
+const WB_TOP = 0.60, WB_BOT = 0.98;
+const APEX = 0.96, BASE = 3.42, RADIUS = 1.02, TIERS = 6, BOW_Y = 1.34;
+const SCENE_TOP = 0.02, SCENE_BOTTOM = 4.42, SCENE_HALF_W = 1.68;
 const LIGHT = norm3(-0.42, -0.58, -0.70);
 
 function norm3(x,y,z){ const d=Math.hypot(x,y,z)||1; return [x/d,y/d,z/d]; }
 
-/* 겹겹이 쌓인 청바지: 층마다 허리에서 밑단으로 벌어지고, 층 경계에서 한 번 꺾인다 */
 function tierGeom(y){
-  let t = (y-APEX)/(BASE-APEX); t = t<0?0:(t>1?1:t);
+  let t = (y - APEX) / (BASE - APEX);
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
   const tt = t*TIERS;
   const i = Math.min(TIERS-1, Math.floor(tt));
   const u = tt - i;
-  const R = RADIUS*(0.20 + 0.80*Math.pow(t, 0.95));
+  const R = RADIUS*(0.20 + 0.80*Math.pow(t,0.95));
   const r = R*(0.80 + 0.34*u);
   return { r, u, t, i, R };
 }
-/* 높이별 매끈한 원뿔 반경 (밑단·포켓 배치용) */
 function coneR(t){
-  t = t<0?0:(t>1?1:t);
-  return RADIUS*(0.20 + 0.80*Math.pow(t, 0.95));
+  t = t < 0 ? 0 : (t > 1 ? 1 : t);
+  return RADIUS*(0.20 + 0.80*Math.pow(t,0.95));
+}
+function wrapR(y){
+  return coneR((Math.min(y, BASE) - APEX) / (BASE - APEX));
+}
+function sqrtGuard(r, x){
+  return Math.sqrt(Math.max(0, r*r - Math.min(r*r*0.94, x*x)));
 }
 
-/* 납작하게 옆으로 뻗은 새틴 고리 (왼쪽 절반, 오른쪽은 좌우 반전) */
 const BOW_POLYS = (()=>{
-  const left = [[-0.070,-0.025],[-0.115,-0.070],[-0.19,-0.150],[-0.30,-0.235],
-                [-0.43,-0.288],[-0.54,-0.300],[-0.615,-0.268],[-0.655,-0.190],
-                [-0.668,0.000],[-0.655,0.190],[-0.615,0.268],[-0.54,0.300],
-                [-0.43,0.288],[-0.30,0.235],[-0.19,0.150],[-0.115,0.070],[-0.070,0.025]];
-  return [left, left.map(p=>[-p[0],p[1]])];
+  const L = [[-0.070,-0.025],[-0.115,-0.070],[-0.19,-0.150],[-0.30,-0.235],
+             [-0.43,-0.288],[-0.54,-0.300],[-0.615,-0.268],[-0.655,-0.190],
+             [-0.668, 0.000],[-0.655, 0.190],[-0.615, 0.268],[-0.54, 0.300],
+             [-0.43, 0.288],[-0.30, 0.235],[-0.19, 0.150],[-0.115, 0.070],
+             [-0.070, 0.025]];
+  return [L, L.map(p=>[-p[0], p[1]])];
 })();
 
-function inpoly(x,y,poly){
-  let inside=false, j=poly.length-1;
-  for (let i=0;i<poly.length;i++){
+function inpoly(x, y, poly){
+  let inside = false, n = poly.length, j = n-1;
+  for (let i=0;i<n;i++){
     const xi=poly[i][0], yi=poly[i][1], xj=poly[j][0], yj=poly[j][1];
-    if (((yi>y)!=(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi)+xi)) inside=!inside;
-    j=i;
+    if (((yi>y)!==(yj>y)) && (x < (xj-xi)*(y-yi)/(yj-yi) + xi)) inside = !inside;
+    j = i;
   }
   return inside;
 }
 
-/* ---------- 장면(복셀) 만들기 ---------- */
-function buildScene(U, seed){
-  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
-  let s = seed || 20261123;
-  const rnd = ()=>{ s = (s*1664525 + 1013904223) % 4294967296; return s/4294967296; };
-  const vox = [];
+/* 겹쳐 걸린 옷자락(팬츠 다리·재킷 소매) 플랩: (시작 y, 중심 각, 각 반폭, 밖 배율, 길이) */
+const FLAPS = [
+  [1.16, -0.52, 0.30, 1.16, 0.30],
+  [1.46,  1.10, 0.34, 1.22, 0.26],
+  [1.80,  2.56, 0.26, 1.12, 0.30],
+  [2.14, -1.98, 0.32, 1.26, 0.24],
+  [2.48,  0.20, 0.36, 1.15, 0.30],
+  [2.84, -2.78, 0.28, 1.30, 0.22],
+  [3.08,  1.66, 0.30, 1.20, 0.26]
+];
 
-  /* --- 허리밴드 · 플라이: 좁은 청바지 허리 + 지퍼 라인 + 버튼 --- */
-  for (let y=WB_TOP; y<=WB_BOT+1e-9; y+=cellH*0.70){
+function waistVoxels(U, rnd, vox){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
+
+  /* 허리밴드 링 */
+  for (let y=WB_TOP; y<=WB_BOT+1e-9; y+=cellH*0.66){
     const f = (y-WB_TOP)/(WB_BOT-WB_TOP);
-    const rx = 0.240 + 0.028*f, rz = 0.170 + 0.020*f;
-    const n = Math.max(16, Math.round(2*Math.PI*rx/cellW*1.5));
-    const stitch = (f < 0.16 || f > 0.84);
+    const rx = 0.252 + 0.030*f, rz = 0.180 + 0.022*f;
+    const n = Math.max(16, Math.round(2*Math.PI*rx/cellW*1.4));
+    const stitch = (f < 0.18 || f > 0.82);
     for (let i=0;i<n;i++){
       const th = 2*Math.PI*(i+0.5)/n;
       const x = rx*Math.cos(th), z = rz*Math.sin(th);
-      const nn = norm3(x/(rx*rx), -0.10, z/(rz*rz));
-      const v = stitch ? 0.96 : ((f<0.30||f>0.70) ? 0.56 : 0.30 + 0.10*Math.sin(th*3));
+      const nn = norm3(x/(rx*rx), -0.12, z/(rz*rz));
+      const v = stitch ? 0.88 : ((f<0.34||f>0.66) ? 0.58 : 0.26 + 0.14*Math.sin(th*3));
       vox.push([x, y, z, nn[0],nn[1],nn[2], rnd(), M_TREE, v]);
     }
   }
-  for (let k=0;k<Math.round(0.30/cellH);k++){
-    const yy = WB_TOP + 0.09 + k*cellH;
-    for (const dx of [-0.55, 0.55])
-      vox.push([dx*cellW, yy, -0.173, 0,0,-1, rnd(), M_TREE, 0.94]);
-    if (k % 2 === 0 && k > 0)
-      vox.push([0, yy, -0.176, 0,0,-1, rnd(), M_TREE, 0.30]);
+  /* 벨트고리: 밴드를 넘어 위로 솟은 고리 6개 */
+  for (let k=0;k<6;k++){
+    const th = 2*Math.PI*k/6 + 0.45;
+    const cth = Math.cos(th), sth = Math.sin(th);
+    const cx = 0.256*cth, cz = 0.186*sth;
+    const tx = -sth, tz = cth;
+    const nn = norm3(cth, -0.16, sth);
+    const rows = Math.max(3, Math.round(0.21/cellH));
+    for (let j=0;j<rows;j++){
+      const yy = WB_TOP - 0.125 + j*cellH;
+      const v = j===0 ? 0.99 : (j<2 ? 0.86 : 0.52);
+      for (const dk of [-0.55, 0.55])
+        vox.push([cx + tx*dk*cellW, yy, cz + tz*dk*cellW,
+                  nn[0],nn[1],nn[2], rnd(), M_TREE, v]);
+    }
   }
-  vox.push([0, WB_TOP+0.05, -0.178, 0,0,-1, rnd(), M_TREE, 1.0]);
-  vox.push([cellW*0.9, WB_TOP+0.05, -0.176, 0,0,-1, rnd(), M_TREE, 1.0]);
+  /* 지퍼 · 버튼 */
+  for (let j=0;j<Math.max(4, Math.round(0.24/cellH));j++){
+    const yy = WB_TOP + 0.12 + j*cellH;
+    vox.push([0, yy, -0.182, 0,0,-1, rnd(), M_TREE, 0.32]);
+  }
+  for (const dk of [-0.7, 0.0, 0.7])
+    vox.push([cellW*dk, WB_TOP+0.06, -0.186, 0,0,-1, rnd(), M_TREE, 0.99]);
+}
 
-  /* --- 트리: 겹겹이 쌓인 데님 층 --- */
+function treeVoxels(U, rnd, vox){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
+
+  /* 트리 본체: 층마다 데님 워싱 대비 */
   for (let y=APEX; y<=BASE+1e-9; y+=cellH*0.60){
     const g = tierGeom(y);
     const flare = 1 + 0.12*Math.pow(Math.max(0,(y-(BASE-0.44))/0.50), 1.3);
@@ -324,40 +355,84 @@ function buildScene(U, seed){
       const fold = 1 + 0.030*Math.sin(5*th + 2.2*g.i) + 0.017*Math.sin(9*th - 2.4*y);
       const rr = r*fold;
       const x = rr*Math.cos(th), z = rr*Math.sin(th);
-      /* 가랑이: 아래로 갈수록 벌어지는 앞쪽 V 홈 */
       if (y > BASE-0.22 && z < 0 && Math.abs(x) < 0.02 + 0.45*(y-(BASE-0.22))) continue;
       const nn = norm3(Math.cos(th), -0.34 - 0.10*Math.sin(y*2.2 + g.i), Math.sin(th));
       const wash = 0.5 + 0.5*Math.sin(th*2.0 + y*3.4 + g.i*1.9);
-      const band = (g.i % 2) ? 0.10 : 0;
-      /* 층 밑단 바로 위는 그늘, 밑단 턱은 밝게 */
-      const shadow = g.u > 0.80 ? -0.10*(g.u-0.80)/0.20 : 0;
+      const patch = 0.5 + 0.5*Math.sin(th*1.3 - y*1.7 + g.i*2.7);
+      const band = (g.i % 2) ? 0.06 : 0;
+      const shadow = g.u > 0.78 ? -0.12*(g.u-0.78)/0.22 : 0;
       const lip = g.u > 0.90 ? 0.16 : 0;
-      let v = 0.30 + 0.18*Math.pow(1-g.t,0.9) + band + 0.24*Math.pow(1-g.u,1.4) + 0.07*wash + shadow + lip;
+      let v = 0.10 + 0.17*Math.pow(1-g.t,0.9) + band + 0.22*Math.pow(1-g.u,1.3)
+              + 0.16*wash + 0.10*patch + shadow + lip;
       v = Math.max(0, Math.min(0.999, v));
       vox.push([x, y, z, nn[0],nn[1],nn[2], rnd(), M_TREE, v]);
     }
   }
 
-  /* --- 층 밑단: 비대칭으로 흔들리는 밝은 헴 --- */
-  for (let i=0;i<TIERS;i++){
-    const tHem=(i+1)/TIERS;
-    const yh = APEX + (BASE-APEX)*tHem;
-    const rHem = coneR(tHem)*(1.18 + 0.10*(1-tHem));
-    const n = Math.max(18, Math.round(2*Math.PI*rHem/cellW*1.7));
-    for (let k=0;k<n;k++){
-      const th = 2*Math.PI*(k+0.5)/n;
-      const yy = yh + 0.048*Math.sin(2*th + i*1.9) + 0.018*Math.sin(5*th);
-      const rr = rHem*(1 + 0.02*Math.sin(7*th + i*2.3));
-      const x = rr*Math.cos(th), z = rr*Math.sin(th);
-      if (i===TIERS-1 && z<0 && Math.abs(x) < 0.18) continue;   // 가랑이 홈
-      const nn = norm3(Math.cos(th), -0.62, Math.sin(th));
-      for (const dy of [0, cellH*0.72])
-        vox.push([x, yy+dy, z, nn[0],nn[1],nn[2], rnd(), M_TREE,
-                  0.90 + 0.08*Math.max(0,Math.sin(th*2+i))]);
+  /* 비대칭 플랩: 겹겹이 걸쳐 삐져나온 옷자락 */
+  for (const [y0, thc, half, outF, drop] of FLAPS){
+    const rows = Math.max(4, Math.round(drop/cellH));
+    for (let r=0;r<rows;r++){
+      const fy = y0 - drop*0.12 + (r/rows)*drop*1.12;
+      const rr0 = coneR((Math.min(fy, BASE) - APEX)/(BASE-APEX));
+      const spread = 1 + 0.14*(r/rows);
+      const steps = Math.max(5, Math.round(2*half*rr0/cellW));
+      for (let k=0;k<steps;k++){
+        const th = thc + (-half + 2*half*k/Math.max(1, steps-1));
+        const rrf = rr0*outF*spread*(1 + 0.05*Math.sin(6*th + r*1.7));
+        const x = rrf*Math.cos(th);
+        let z = rrf*Math.sin(th);
+        z -= 0.030*Math.max(0, -Math.sin(th));
+        if (r > rows*0.72 && (k + r*5) % 3 === 0) continue;
+        if ((k + r*3) % 11 === 0) continue;
+        const nn = norm3(Math.cos(th), -0.30, Math.sin(th));
+        const v = 0.20 + 0.48*(0.5 + 0.5*Math.sin(th*3.1 + r*1.3)) + 0.20*(1 - r/rows);
+        vox.push([x, fy, z, nn[0],nn[1],nn[2], rnd(), M_TREE, Math.min(0.99, Math.max(0, v))]);
+      }
     }
   }
 
-  /* --- 포켓 · 스티치 곡선 --- */
+  /* 옆으로 삐죽 나온 바지 다리 두 개 */
+  for (const side of [-1, 1]){
+    const steps = Math.max(8, Math.round(0.66/cellH));
+    for (let j=0;j<steps;j++){
+      const u = j/Math.max(1, steps-1);
+      const cy = 2.82 + u*0.66;
+      const cx = side*(0.72 + 0.46*u);
+      const cz = -0.22 - 0.16*u;
+      const rad = 0.105 - 0.028*u;
+      const m = Math.max(6, Math.round(2*Math.PI*rad/cellW));
+      for (let i=0;i<m;i++){
+        const th = 2*Math.PI*(i+0.5)/m;
+        const x = cx + rad*Math.cos(th);
+        const yy = cy + rad*0.55*Math.sin(th);
+        if (yy > BASE + 0.30) continue;
+        const nn = norm3(Math.cos(th), 0.30*side, Math.sin(th));
+        const v = 0.24 + 0.50*(0.5 + 0.5*Math.sin(th*2 + u*3.4)) + 0.14*u;
+        vox.push([x, yy, cz, nn[0],nn[1],nn[2], rnd(), M_TREE, Math.min(0.99, v)]);
+      }
+    }
+  }
+
+  /* 층 밑단: 두 줄 스티치가 도는 밝은 헴 */
+  for (let i=0;i<TIERS;i++){
+    const tHem = (i+1)/TIERS;
+    const yh = APEX + (BASE-APEX)*tHem;
+    const rHem = coneR(tHem)*(1.20 + 0.12*(1-tHem));
+    const n = Math.max(18, Math.round(2*Math.PI*rHem/cellW*1.7));
+    for (let k=0;k<n;k++){
+      const th = 2*Math.PI*(k+0.5)/n;
+      const yy = yh + 0.052*Math.sin(2*th + i*1.9) + 0.020*Math.sin(5*th);
+      const rr = rHem*(1 + 0.02*Math.sin(7*th + i*2.3));
+      const x = rr*Math.cos(th), z = rr*Math.sin(th);
+      if (i===TIERS-1 && z<0 && Math.abs(x) < 0.18) continue;
+      const nn = norm3(Math.cos(th), -0.62, Math.sin(th));
+      for (const [dy, vv] of [[0, 1.0], [cellH*0.62, 0.94], [cellH*0.95, 0.72]])
+        vox.push([x, yy+dy, z, nn[0],nn[1],nn[2], rnd(), M_TREE, vv]);
+    }
+  }
+
+  /* 포켓 · 스티치 곡선 */
   for (const [ti, thc] of [[1,-0.95],[1,-2.19],[3,-1.05]]){
     const t0 = (ti+0.52)/TIERS;
     const y0 = APEX + (BASE-APEX)*t0;
@@ -366,105 +441,128 @@ function buildScene(U, seed){
     for (let k=0;k<=steps;k++){
       const th = thc + (-half + 2*half*k/steps);
       const yy = y0 + 0.085*Math.sin(Math.PI*k/steps);
-      const rr = tierGeom(yy).r*1.014;
+      const rr = tierGeom(yy).r*1.03;
       const nn = norm3(Math.cos(th), -0.28, Math.sin(th));
-      vox.push([rr*Math.cos(th), yy, rr*Math.sin(th), nn[0],nn[1],nn[2], rnd(), M_TREE, 0.86]);
+      vox.push([rr*Math.cos(th), yy, rr*Math.sin(th), nn[0],nn[1],nn[2], rnd(), M_TREE, 0.90]);
     }
   }
+}
 
-  /* --- 리본 보우: 좁은 매듭 + 납작하게 뻗은 두 고리 --- */
-  const bx0=-0.72, bx1=0.72, by0=BOW_Y-0.34, by1=BOW_Y+0.34;
-  const bcols = Math.max(14, Math.round((bx1-bx0)/cellW));
-  const brows = Math.max(7, Math.round((by1-by0)/cellH));
-  const bmask = [];
+/* 나비 매듭 한 벌: 고리 두 개 + 매듭 + 흘러내리는 테일 두 줄 */
+const S_PATH = [[0.24,0.00],[0.88,0.14],[0.54,0.36],[1.04,0.58],[0.72,0.80],[1.18,1.00]];
+function bowSheet(U, rnd, vox, cy, halfX, halfY, front, knotW, knotH, tailLen, tailW){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
+  const sx = halfX/0.668, sy = halfY/0.300;
+  const bx0 = -halfX, bx1 = halfX;
+  const by0 = cy - halfY, by1 = cy + halfY;
+  const bcols = Math.max(12, Math.round((bx1-bx0)/cellW));
+  const brows = Math.max(6, Math.round((by1-by0)/cellH));
+  const mask = [];
   for (let r=0;r<brows;r++){
     const yy = by0 + (r+0.5)*cellH;
     const line = new Uint8Array(bcols);
     for (let c=0;c<bcols;c++){
       const xx = bx0 + (c+0.5)*cellW;
-      const dy = yy - BOW_Y;
-      if (Math.abs(xx)<0.062 && Math.abs(dy)<0.105) line[c]=2;
-      else if (BOW_POLYS.some(p=>inpoly(xx, dy, p))) line[c]=1;
+      const dy = yy - cy;
+      if (Math.abs(xx) < knotW && Math.abs(dy) < knotH) line[c] = 2;
+      else if (BOW_POLYS.some(p=>inpoly(xx/sx, dy/sy, p))) line[c] = 1;
     }
-    bmask.push(line);
+    mask.push(line);
   }
-  const bIn = (r,c)=> r>=0 && r<brows && c>=0 && c<bcols && bmask[r][c]>0;
+  const bIn = (r,c)=> r>=0 && r<brows && c>=0 && c<bcols && mask[r][c]>0;
   const solid = (r,c)=> bIn(r-1,c)&&bIn(r+1,c)&&bIn(r,c-1)&&bIn(r,c+1);
   for (let r=0;r<brows;r++) for (let c=0;c<bcols;c++){
-    if (!bmask[r][c]) continue;
-    const knot = bmask[r][c]===2;
-    const groove = bmask[r][c]===3;
-    const edge = !solid(r,c) && !groove;
-    if (groove) continue;
-    const yy = by0 + (r+0.5)*cellH, xx = bx0 + (c+0.5)*cellW;
-    const dy = (yy-BOW_Y)/0.30;
-    const mat = (edge||knot) ? M_RIBBON_HI : M_RIBBON;
-    const dyr = (yy-BOW_Y)/0.30;
-    const vr = knot ? 1.0 : (edge ? 0.90 : (dyr < -0.25 ? 0.62 : (dyr > 0.35 ? 0.06
-               : 0.20 + 0.26*Math.max(0,1-Math.abs(xx)/0.8))));
-    for (const sg of [-1,1]){
-      const nn = norm3(0.85*xx, 1.5*(yy-BOW_Y), sg*0.8);
-      vox.push([xx, yy, sg*(0.235 + 0.03*(1-Math.abs(xx)/0.9)), nn[0], nn[1], nn[2], rnd(), mat, vr]);
+    if (!mask[r][c]) continue;
+    const knot = mask[r][c]===2;
+    const edge = !solid(r,c);
+    const yy = by0 + (r+0.5)*cellH;
+    const xx = bx0 + (c+0.5)*cellW;
+    const dyr = (yy-cy)/Math.max(0.05, halfY);
+    const zz = front - 0.05*(1 - Math.min(1, Math.abs(xx)/Math.max(0.06, halfX))**2);
+    const nn = norm3(0.55*xx/Math.max(0.06, halfX), 1.3*dyr, -1.0);
+    let var_, mat;
+    if (knot){ var_ = 1.0; mat = M_RIBBON_HI; }
+    else if (edge){ var_ = 0.99; mat = M_RIBBON_HI; }
+    else if (dyr < -0.30){ var_ = 0.95; mat = M_RIBBON_HI; }
+    else if (dyr > 0.40){ var_ = 0.30; mat = M_RIBBON; }
+    else {
+      var_ = 0.78 + 0.20*Math.max(0, 1 - Math.abs(xx)/Math.max(0.06, halfX));
+      mat = M_RIBBON;
+      if ((r + c) % 9 === 0){ var_ = 0.99; mat = M_RIBBON_HI; }
     }
+    vox.push([xx, yy, zz, nn[0],nn[1],nn[2], rnd(), mat, var_]);
   }
 
-  /* --- 리본 테일: 매듭에서 트리 옆선을 따라 길게 흘러내림 --- */
-  for (const sgn of [-1,1]){
-    const steps = Math.max(30, Math.round(2.9*U/0.55));
-    for (let i=0;i<steps;i++){
-      const u = i/(steps-1);
-      const yy = BOW_Y + 0.12 + u*2.62;
-      const g = tierGeom(yy);
-      const rt = yy > APEX-0.04 ? g.r : 0.12;
-      const fr = 0.74 + 0.14*Math.sin(u*2.4);
-      const cxx = sgn*Math.max(0.12, rt*fr);
-      const zz = -Math.sqrt(Math.max(0.004, rt*rt - Math.min(rt*rt*0.94, cxx*cxx))) - 0.030;
-      const w = 0.200 + 0.060*Math.sin(Math.PI*Math.min(1,u*1.1)) - 0.070*u;
-      const across = Math.max(2, Math.round(w/cellW));
-      const edgeY = (u > 0.93) ? 0.02*Math.sin(u*40) : 0;
+  /* 테일: 매듭에서 좌우로 크게 S자를 그리며 바닥까지 */
+  for (const side of [-1, 1]){
+    const steps = Math.max(30, Math.round(tailLen/(cellH*0.45)));
+    for (let j=0;j<steps;j++){
+      const u = j/Math.max(1, steps-1);
+      const yy = cy + knotH + u*tailLen;
+      const rr = wrapR(yy);
+      let amp = S_PATH[S_PATH.length-1][0];
+      for (let k=0;k<S_PATH.length-1;k++){
+        if (S_PATH[k][1] <= u && u <= S_PATH[k+1][1]){
+          let f = (u - S_PATH[k][1])/Math.max(1e-6, S_PATH[k+1][1]-S_PATH[k][1]);
+          f = f*f*(3-2*f);
+          amp = S_PATH[k][0] + (S_PATH[k+1][0]-S_PATH[k][0])*f;
+          break;
+        }
+      }
+      if (side < 0) amp *= 0.96;
+      const cx = side*amp;
+      let w = tailW*(0.78 + 0.34*Math.sin(Math.PI*Math.min(1, u*1.02)));
+      if (u > 0.90) w *= 1 + 1.1*(u-0.90);
+      const across = Math.max(3, Math.round(w/cellW));
       for (let k=0;k<across;k++){
-        const xx = cxx + (k-(across-1)/2)*cellW;
-        const edge = (k===0||k===across-1);
-        vox.push([xx, yy + edgeY + 0.015*Math.sin(u*8+k), zz - (edge?0:0.012), 0,0,-1, rnd(),
-                  edge?M_RIBBON_HI:M_RIBBON,
-                  edge?0.90:0.18+0.52*(1-Math.abs(k/Math.max(1,across-1)-0.5)*2)]);
+        const xx = cx + (k-(across-1)/2)*cellW;
+        const zz = Math.abs(xx) < rr ? -(sqrtGuard(rr, xx) + 0.05) : -0.05;
+        const edge = (k===0 || k===across-1);
+        const ph = 0.5 + 0.5*Math.sin(u*15.0 + k*2.4 + side*1.7);
+        let mat, var_;
+        if (edge){ mat = M_RIBBON_HI; var_ = ph > 0.45 ? 0.99 : 0.90; }
+        else { mat = M_RIBBON; var_ = 0.72 + 0.26*ph; }
+        vox.push([xx, yy + 0.012*Math.sin(u*9+k), zz, 0, 0, -1,
+                  rnd(), mat, var_, side*u]);
       }
     }
   }
+}
 
-  /* --- 택 오너먼트 --- */
-  const tagSpots = [[1.52,-0.92],[2.10,0.62],[2.66,-1.06],[3.02,0.40]];
-  for (const [yy0, th0] of tagSpots){
-    const g = tierGeom(yy0);
+function tagVoxels(U, rnd, vox){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
+  const spots = [[1.60,-1.18],[1.98,0.34],[2.26,1.42],[2.62,-0.72],[2.96,1.02],[3.18,-1.34]];
+  for (const [yy0, th0] of spots){
+    const rr = wrapR(yy0);
     const th = th0;
     const cth = Math.cos(th), sth = Math.sin(th);
-    const rr = g.r;
     const cx = rr*cth, cz = rr*sth;
-    const nn = norm3(cth, -0.1, sth);
-    const t1 = [-sth, 0, cth];
-    const w = 0.17, h = 0.21;
+    const w = 0.21, h = 0.25;
     const cols = Math.max(3, Math.round(w/cellW));
-    const rows = Math.max(3, Math.round(h/cellH));
+    const rows = Math.max(4, Math.round(h/cellH));
     const oy = yy0 - h*0.5;
+    const zf = -sqrtGuard(rr, cx) - 0.05;
     for (let r=0;r<rows;r++) for (let c=0;c<cols;c++){
       const a = (c-(cols-1)/2)*cellW;
-      const px = cx + t1[0]*a + nn[0]*0.02;
+      const px = cx + (-sth)*a;
       const py = oy + r*cellH;
-      const pz = cz + t1[2]*a + nn[2]*0.02;
       const edge = (c===0||c===cols-1||r===0||r===rows-1);
-      vox.push([px,py,pz, nn[0],nn[1],nn[2], rnd(), M_TAG, edge?0.42:1.0]);
+      vox.push([px, py, zf, 0,0,-1, rnd(), M_TAG, edge ? 0.50 : 1.0]);
     }
-    for (let k=0;k<Math.max(2, Math.round(0.26/cellH));k++)
-      vox.push([cx, oy-k*cellH, cz-0.02, nn[0],0,nn[2], rnd(), M_TAG, 0.38]);
+    for (let k=0;k<Math.max(2, Math.round(0.28/cellH));k++)
+      vox.push([cx, oy - k*cellH, zf + 0.01, 0,0,-1, rnd(), M_TAG, 0.30]);
   }
+}
 
-  /* --- 기프트 박스: 트리 발치, 크게 + 또렷한 핑크 크로스 --- */
+function boxVoxels(U, rnd, vox){
+  const cellH = 1/U, cellW = cellH*CELL_ASPECT;
   const boxes = [[-0.82,4.34,-0.70,1.00,0.74,0.78],
                  [ 0.72,4.34,-0.64,0.86,0.66,0.70],
                  [-0.04,4.34,-1.16,0.78,0.60,0.64]];
   for (const [bx,by,bz,w,h,d] of boxes){
     const x0=bx-w/2, x1=bx+w/2, y0=by-h, y1=by, z0=bz-d/2, z1=bz+d/2;
-    const nx=Math.max(3,Math.round(w/cellW)), ny=Math.max(3,Math.round(h/cellH)), nz=Math.max(3,Math.round(d/cellW));
+    const nx=Math.max(3,Math.round(w/cellW)), ny=Math.max(3,Math.round(h/cellH)),
+          nz=Math.max(3,Math.round(d/cellW));
     const bw = 0.052;
     for (let i=0;i<nx;i++) for (let k=0;k<nz;k++){
       const xx=x0+(i+0.5)*w/nx, zz=z0+(k+0.5)*d/nz;
@@ -484,8 +582,21 @@ function buildScene(U, seed){
     for (const dx of [-0.032,0.032]) for (const dz of [-0.028,0.028])
       vox.push([bx+dx, y0-0.02, bz+dz, 0,-1,0, rnd(), M_RIBBON_HI, 1.0]);
   }
+}
 
-  return { vox, cellH, cellW, U };
+function buildScene(U, seed){
+  let s = seed || 20261123;
+  const rnd = ()=>{ s = (s*1664525 + 1013904223) % 4294967296; return s/4294967296; };
+  const vox = [];
+  waistVoxels(U, rnd, vox);
+  treeVoxels(U, rnd, vox);
+  /* 허리 아래(트리 높이 84%)의 큼직한 매듭 + 바닥까지 흘러내리는 테일 */
+  bowSheet(U, rnd, vox, BOW_Y, 0.72, 0.200, -0.40, 0.068, 0.090, 2.24, 0.330);
+  /* 밑단 중앙의 작은 핑크 리본 */
+  bowSheet(U, rnd, vox, BASE-0.02, 0.155, 0.070, -0.62, 0.026, 0.032, 0.30, 0.080);
+  tagVoxels(U, rnd, vox);
+  boxVoxels(U, rnd, vox);
+  return { vox, cellH: 1/U, cellW: (1/U)*CELL_ASPECT, U };
 }
 
 /* ---------- 색 ---------- */
@@ -728,7 +839,14 @@ function frame(ts){
   const vox = sc.vox;
   for (let i=0;i<vox.length;i++){
     const p = vox[i];
-    const rx = p[0], ry = p[1]-cyScene, rz = p[2];
+    let vx = p[0], vy = p[1], vz = p[2];
+    if (p.length > 9){                       /* 바람에 살랑이는 리본 테일 */
+      const wv = p[9], aw = Math.abs(wv);
+      vx += 0.115*aw*Math.sin(t*2.1 + wv*8.4);
+      vz += 0.035*aw*Math.sin(t*1.4 + wv*6.1 + 0.7);
+      vy += 0.014*aw*Math.sin(t*2.4 + wv*10.5);
+    }
+    const rx = vx, ry = vy-cyScene, rz = vz;
     const X = rx*cy_ + rz*sy_;
     const Z1 = -rx*sy_ + rz*cy_;
     const Y = ry*cp - Z1*sp;
@@ -766,19 +884,23 @@ function frame(ts){
       const c = matColor(th, mat, vr);
       let ch;
       if (mat === M_TREE){
-        /* 데님 직조: 셀 격자에 따라 도는 대각 텍스처 + 밝기 */
+        /* 데님 직조 + 워싱 하이라이트 */
         const px = idx % cols, py = (idx/cols)|0;
-        ch = (((px + py) % 4 === 0) || b < 0.22) ? "." : ":";
-        if (vr > 0.90) ch = "=";                 // 밑단 헴 · 스티치
+        if (vr > 0.93) ch = "#";                 // 헴 · 스티치
+        else if (vr > 0.74) ch = "=";            // 밝은 워싱
+        else if (((px + py) % 4 === 0) || b < 0.24) ch = ".";
+        else ch = ":";
       } else if (mat === M_RIBBON || mat === M_RIBBON_HI){
-        /* 리본은 밝기 대신 역할(매듭/테두리/안감)로 글자를 고른다 */
-        ch = (vr >= 0.99) ? "@" : (vr >= 0.84 ? "#" : (vr > 0.30 ? ":" : "-"));
+        /* 리본은 새틴 광택으로 글자를 고른다 */
+        ch = (vr >= 0.985) ? "@" : (vr >= 0.87 ? "*"
+              : (vr >= 0.66 ? "#" : (vr > 0.24 ? ":" : "-")));
       } else if (mat === M_TAG){
         ch = (vr > 0.8) ? "#" : ":";
       } else {
         ch = (vr >= 0.94) ? "=" : (b > 0.66 ? "+" : (b > 0.36 ? "-" : "."));
       }
-      const shade = 0.64 + 0.40*b;
+      let shade = 0.64 + 0.40*b;
+      if (mat === M_TAG) shade = vr > 0.8 ? 0.95 : 0.60;
       charBuf[idx] = ch;
       colorBuf[idx] = [Math.min(255,c[0]*shade)|0, Math.min(255,c[1]*shade)|0, Math.min(255,c[2]*shade)|0];
     }
