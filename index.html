@@ -767,7 +767,7 @@ function drawLogoShell(seedIdx, t0, side, lane, t, cols, H, put, theme, roomAt){
   let by = H*([0.13, 0.27, 0.41][lane % 3] + 0.03*rnd());   // 높이 줄: 같은 쪽 로고끼리 겹치지 않게
   let room = roomAt(by + 5);
   let pitch = 0;                                 // 0 = 비트맵 로고, 2~4 = 글자 한 자씩(칸 간격)
-  if (room < 46){                                // 좁은 화면: 트리 옆 빈 하늘 폭에 맞춘 글자 로고
+  if (room < 78){                                // 그림 로고가 뭉개지는 폭(56칸 미만): 글자 로고로
     if (room < 20){ by = H*(0.075 + 0.07*rnd()); room = roomAt(by + 2); }
     pitch = Math.max(2, Math.min(4, Math.floor((room - 3)/8)));
   }
