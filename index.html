@@ -35,7 +35,11 @@
        cursor:pointer;transition:.18s color,.18s background;}
   .bar button:hover,.bar button:focus-visible{color:#fff;background:rgba(246,184,200,.16);outline:none;}
   .bar button.on{color:#0a0c14;background:var(--pink);}
-  @media (max-width:420px){ .bar button{font-size:9px;padding:5px 8px;} }
+  @media (max-width:420px){
+    .bar{gap:2px;padding:6px 6px;}
+    .bar button{font-size:8.5px;letter-spacing:.06em;padding:6px 6px;white-space:nowrap;}
+    .bottom{gap:10px;}
+  }
 </style>
 </head>
 <body>
@@ -762,10 +766,13 @@ function drawLogoShell(seedIdx, t0, side, lane, t, cols, H, put, theme, roomAt){
   const cA = sc[0], cB = sc[1];
   let by = H*([0.13, 0.27, 0.41][lane % 3] + 0.03*rnd());   // 높이 줄: 같은 쪽 로고끼리 겹치지 않게
   let room = roomAt(by + 5);
-  let narrow = false;
-  if (room < 46){ by = H*(0.075 + 0.07*rnd()); room = roomAt(by + 4); narrow = true; }   // 좁은 화면은 트리 목 옆 하늘로
-  const lw = Math.round(narrow ? Math.max(28, room*0.90) : Math.max(34, Math.min(room*0.72, cols*0.25)));
-  const L = logoPoints(lw), lh = L.rows;
+  let pitch = 0;                                 // 0 = 비트맵 로고, 2~4 = 글자 한 자씩(칸 간격)
+  if (room < 46){                                // 좁은 화면: 트리 옆 빈 하늘 폭에 맞춘 글자 로고
+    if (room < 20){ by = H*(0.075 + 0.07*rnd()); room = roomAt(by + 2); }
+    pitch = Math.max(2, Math.min(4, Math.floor((room - 3)/8)));
+  }
+  const lw = pitch ? pitch*7 + 1 : Math.round(Math.max(34, Math.min(room*0.72, cols*0.25)));
+  const L = pitch ? null : logoPoints(lw), lh = pitch ? 1 : L.rows;
   let bx = cols*0.5 + side*(cols*0.5 - room*0.5) + (rnd()-0.5)*Math.max(0, room - lw)*0.5;
   bx = Math.max(lw*0.5 + 1, Math.min(cols - lw*0.5 - 1, bx));
   by = Math.max(lh*0.5 + 2, by);
@@ -798,6 +805,32 @@ function drawLogoShell(seedIdx, t0, side, lane, t, cols, H, put, theme, roomAt){
       put(Math.round(x), Math.round(y), k===0 ? (f > 0.6 ? "*" : "+") : (k < 2 ? ":" : "."),
           [cB[0]*fb|0, cB[1]*fb|0, cB[2]*fb|0], k===0 ? f : f*0.3);
     }
+  }
+
+  if (pitch){
+    /* 글자 로고: 한가운데에서 한 자씩 제자리로 퍼지고, 둘레에 불티 가루가 반짝인다 */
+    const TXT = "KIMHĒKIM", cx0 = Math.round(bx), cy0 = Math.round(by);
+    for (let i=0;i<36;i++){
+      const a = rnd()*6.2832, d = 0.35 + 0.65*rnd(), pr = rnd();
+      const f = fade*(0.35 + 0.35*Math.sin(t*18 + pr*40));
+      if (f < 0.10) continue;
+      const x = cx0 + Math.cos(a)*(lw*0.5 + 2)*d*ease;
+      const y = cy0 + Math.sin(a)*2.6*d*ease + 5*late*late*pr;
+      if (Math.round(y) === cy0 && Math.abs(x - cx0) < lw*0.5 + 1) continue;      // 글자 줄은 비워 둔다
+      put(Math.round(x), Math.round(y), f > 0.45 ? "+" : ".", [cB[0]*f|0, cB[1]*f|0, cB[2]*f|0], f*0.6);
+    }
+    for (let i=0;i<TXT.length;i++){
+      const pr = rnd();
+      let f = fade;
+      if (late > 0) f *= 0.62 + 0.38*Math.sin(t*22 + pr*40);
+      if (f <= 0.08) continue;
+      const x = cx0 + Math.round((i - 3.5)*pitch*ease + 0.5*ease);
+      const y = cy0 + Math.round(6.5*late*late*(0.25 + 0.75*pr));
+      const ch = f > 0.30 ? TXT[i] : (f > 0.16 ? "*" : ".");
+      const fb = Math.min(1, f*2.0);
+      put(x, y, ch, [Math.min(255,cA[0]*fb)|0, Math.min(255,cA[1]*fb)|0, Math.min(255,cA[2]*fb)|0], Math.max(f, 0.31));
+    }
+    return;
   }
 
   /* 로고: 불티가 한가운데에서 글자 자리로 퍼지고, 반짝이다가 흘러내린다 */
@@ -874,7 +907,8 @@ const bloom = document.createElement("canvas");
 const bctx = bloom.getContext("2d");
 
 let W = 0, H = 0, DPR = 1;
-let cols = 0, rows = 0, cellW = 10, cellH = 20, fontSize = 17;
+let cols = 0, rows = 0, cellW = 10, cellH = 20;
+let cellWpx = 5, cellHpx = 10, fontPx = 10, offX = 0, offY = 0;   // 기기 픽셀 단위 칸 크기와 여백
 let themeIndex = 0, autoRotate = true, speedMul = 1, resStep = 0;
 let scene = null, sceneKey = "", capRows = 7;
 let stars = [];
@@ -887,22 +921,27 @@ let charBuf, colorBuf, zbuf, occ, matBuf;
 function theme(){ return THEMES[themeIndex]; }
 
 function layout(){
-  DPR = Math.min(window.devicePixelRatio || 1, 2);
+  DPR = Math.min(window.devicePixelRatio || 1, 3);
+  if (window.innerWidth*window.innerHeight*DPR*DPR > 5.2e6) DPR = Math.min(DPR, 2);   // 큰 화면은 2배까지만
   W = Math.floor(window.innerWidth);
   H = Math.floor(window.innerHeight);
-  canvas.width = Math.floor(W*DPR); canvas.height = Math.floor(H*DPR);
+  canvas.width = Math.round(W*DPR); canvas.height = Math.round(H*DPR);
   canvas.style.width = W+"px"; canvas.style.height = H+"px";
   layer.width = canvas.width; layer.height = canvas.height;
   bloom.width = Math.floor(canvas.width/2); bloom.height = Math.floor(canvas.height/2);
 
   // 문자 셀 크기: 화면 높이에 맞춰 약 112행 (RES 버튼: 112 → 136 → 92)
   const targetRows = [112, 136, 92][resStep % 3];
-  cellH = Math.max(6, H/targetRows);
-  cellW = cellH*CELL_ASPECT;
-  fontSize = cellH*1.0;
-  cols = Math.floor(W/cellW);
-  rows = Math.floor(H/cellH);
-  lctx.font = `700 ${fontSize*DPR}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
+  // 칸 크기는 기기 픽셀의 정수배로 잡아 글자가 픽셀 경계에 정확히 놓이게 한다
+  cellWpx = Math.max(3, Math.round(Math.max(6, H/targetRows)*DPR*CELL_ASPECT));
+  cellHpx = cellWpx*2;
+  fontPx = cellHpx;
+  cellW = cellWpx/DPR; cellH = cellHpx/DPR;
+  cols = Math.floor(canvas.width/cellWpx);
+  rows = Math.floor(canvas.height/cellHpx);
+  offX = Math.floor((canvas.width - cols*cellWpx)/2);     // 남는 픽셀: 좌우는 반씩, 위아래는 위쪽으로
+  offY = canvas.height - rows*cellHpx;
+  lctx.font = `700 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
   lctx.textBaseline = "top";
   charBuf = new Array(cols*rows);
   colorBuf = new Array(cols*rows);
@@ -955,7 +994,8 @@ function frame(ts){
   ctx.fillStyle = g;
   ctx.fillRect(0,0,canvas.width,canvas.height);
 
-  const logoCols = Math.max(24, Math.round(Math.min(cols*0.78, rows*0.14*LOGO_ASPECT/CELL_ASPECT)));
+  const narrow = cols < 180;                    // 휴대폰 세로 화면
+  const logoCols = Math.max(24, Math.round(Math.min(cols*(narrow ? 0.94 : 0.78), rows*0.14*LOGO_ASPECT/CELL_ASPECT)));
   const logoRows = logoGrid(logoCols);
   const logoH = logoRows.length;
   const captionRows = capRows;
@@ -963,8 +1003,9 @@ function frame(ts){
   const artBottom = logoTop - 2;
 
   // 스케일
-  const Uw = (cols*0.94)*CELL_ASPECT/(SCENE_HALF_W*2);
-  const Uh = artBottom/(SCENE_BOTTOM-SCENE_TOP);
+  const artTop = narrow ? Math.ceil(36/cellH) : 1;   // 좁은 화면은 위쪽 글자 줄(KIMHĒKIM ASCII ATELIER)을 비켜 간다
+  const Uw = (cols*(narrow ? 0.98 : 0.94))*CELL_ASPECT/((narrow ? 0.98 : SCENE_HALF_W)*2);
+  const Uh = (artBottom-artTop)/(SCENE_BOTTOM-SCENE_TOP);
   const U = Math.max(6, Math.min(Uw, Uh))*0.97;
   const sc = ensureScene(U);
 
@@ -993,7 +1034,7 @@ function frame(ts){
   const cp = Math.cos(pitch), sp = Math.sin(pitch);
   const f = 9.0;
   const cx = cols*0.5;
-  const cyc = artBottom*0.5;
+  const cyc = artTop + (artBottom-artTop)*0.5;
   const toCol = 1/sc.cellW, toRow = 1/sc.cellH;
   const lx=LIGHT[0], ly=LIGHT[1], lz=LIGHT[2];
   const cyScene = (SCENE_TOP+SCENE_BOTTOM)*0.5;
@@ -1161,18 +1202,18 @@ function frame(ts){
   // ---- 그리기 (문자 레이어 → 블룸 → 합성)
   lctx.setTransform(1,0,0,1,0,0);
   lctx.clearRect(0,0,layer.width,layer.height);
-  lctx.font = `700 ${fontSize*DPR}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
+  lctx.font = `700 ${fontPx}px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`;
   lctx.textBaseline = "top";
   let lastColor = "";
   for (let y=0;y<rows;y++){
-    const py = y*cellH*DPR;
+    const py = offY + y*cellHpx;
     for (let x=0;x<cols;x++){
       const idx = y*cols+x;
       const c = colorBuf[idx];
       if (c === null || charBuf[idx] === " ") continue;
       const key = c[0]+","+c[1]+","+c[2];
       if (key !== lastColor){ lctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; lastColor = key; }
-      lctx.fillText(charBuf[idx], x*cellW*DPR, py);
+      lctx.fillText(charBuf[idx], offX + x*cellWpx, py);
     }
   }
 
@@ -1193,14 +1234,14 @@ function frame(ts){
       charBuf[idx] = ch;
       colorBuf[idx] = [logoC[0]*k|0, logoC[1]*k|0, logoC[2]*k|0];
       lctx.fillStyle = `rgb(${colorBuf[idx][0]},${colorBuf[idx][1]},${colorBuf[idx][2]})`;
-      lctx.fillText(ch, xx*cellW*DPR, yy*cellH*DPR);
+      lctx.fillText(ch, offX + xx*cellWpx, offY + yy*cellHpx);
     }
   }
 
   // 블룸
   bctx.setTransform(1,0,0,1,0,0);
   bctx.clearRect(0,0,bloom.width,bloom.height);
-  bctx.filter = `blur(${Math.max(1.2, cellH*DPR*0.16).toFixed(1)}px)`;
+  bctx.filter = `blur(${Math.max(1.2, cellHpx*0.16).toFixed(1)}px)`;
   bctx.drawImage(layer, 0,0, bloom.width, bloom.height);
   bctx.filter = "none";
 
